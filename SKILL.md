@@ -11,7 +11,7 @@ compatibility: >
   Forced Aligner, openSMILE, librosa, Plotly.
 metadata:
   author: jeremyknows
-  version: "0.2.4"
+  version: "0.2.5"
   category: Audio Analysis & Visualization
   status: EXPERIMENTAL
   last_improved: "2026-06-27"
@@ -150,6 +150,11 @@ when the user wants a report that omits the audio player and raw audio copy.
   single-speaker oriented and needs diarization before strong conclusions.
 
 ## Visualization Guidance
+
+Read `references/interface-design.md` before creating, editing, or reviewing
+HTML artifacts. The report should feel like a polished listening instrument, not
+a generic data dump. The bundled `report.html` generator is the reference
+implementation for palette, spacing, controls, and responsive behavior.
 
 Prefer an interactive HTML report for v1:
 - audio player

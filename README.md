@@ -125,6 +125,14 @@ Ask your agent:
 When audio is available, the agent should run the analyzer rather than relying on
 transcript-only impressions.
 
+## Interface Design Direction
+
+Prosody Lens includes explicit HTML/CSS direction for generated artifacts in
+`references/interface-design.md`. Agents should use it when creating or editing
+`report.html`: warm cream paper, red accent, deep teal structure, tactile
+controls, click-to-seek charts, tabular metrics, mobile-safe wrapping, and
+reduced-motion support.
+
 ## Privacy And Sharing
 
 Default `report.html` embeds a playable copy of the raw voice audio. Treat it as
