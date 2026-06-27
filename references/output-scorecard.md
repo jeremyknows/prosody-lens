@@ -28,7 +28,10 @@ Score each item yes/no:
 12. The HTML report includes a Visual only toggle and Download image button; the
     toggle hides word-heavy sections and the image export produces a non-empty
     PNG from the visual snapshot.
+13. The visual snapshot supports Map, Card, and Library layouts; switching
+    layouts updates the visible snapshot and Download image exports the active
+    layout, not a hidden default.
 
-Passing threshold for publish-quality outputs: 11/12, with items 1, 2, 4, 8, 9,
-10, 11, and 12
+Passing threshold for publish-quality outputs: 12/13, with items 1, 2, 4, 8, 9,
+10, 11, 12, and 13
 required.

@@ -18,8 +18,8 @@ for the bundled analyzer.
   correlation, DTW, or hybrid scoring.
 - Adds a static Pattern Review Workbench inside `report.html` for approving,
   rejecting, renaming, annotating, and exporting candidate review JSON.
-- Adds a Visual only toggle and Download image button for low-text stakeholder
-  sharing.
+- Adds Visual only, Map/Card/Library visual layouts, and Download image for
+  low-text stakeholder sharing.
 - Generates `prosody.json`, `report.md`, and an interactive `report.html`.
 - Embeds browser-friendly MP3 playback in the HTML by default.
 - Supports repeated-run trend records with `--history`.
@@ -28,7 +28,7 @@ for the bundled analyzer.
 ## Requirements
 
 Required:
-- Python 3.11+
+- Python 3.9+
 - `numpy`
 - `ffmpeg`
 - `ffprobe`
@@ -161,7 +161,7 @@ python3 scripts/prosody_analyze.py /absolute/path/to/audio.ogg \
 | --- | --- |
 | `prosody.json` | Structured metrics, synthesis, analyzer method, session metadata, pattern analysis, trend metrics, progression, and time series. |
 | `report.md` | Human-readable summary, listen-first moments, metrics, limitations, and pause map. |
-| `report.html` | Standalone interactive report with audio playback, charts, controls, visual snapshot PNG export, visual-only mode, and Pattern Review Workbench. |
+| `report.html` | Standalone interactive report with audio playback, charts, controls, selectable visual snapshot layouts, PNG export, visual-only mode, and Pattern Review Workbench. |
 | `pattern-library.json` | Optional analyst-reviewed library when `--pattern-library` and `--save-pattern-label` are used. |
 | `audio.wav` | Normalized mono WAV used for analysis unless `--share-safe` is used. |
 | `audio.mp3` | Browser-friendly playback copy embedded in HTML when available. |
@@ -180,6 +180,7 @@ Ask your agent:
 - "Save this as an approved pattern and use it to match future clips."
 - "Open the report, approve candidate #2, and export the review JSON."
 - "Show me the visual-only view and download just the image."
+- "Switch the visual snapshot to Card and download that image."
 - "Visualize the cadence and pauses in this narration take."
 - "Compare these two takes for clarity and pacing."
 - "Show progression over time across these recordings."
@@ -192,8 +193,8 @@ transcript-only impressions.
 Prosody Lens includes explicit HTML/CSS direction for generated artifacts in
 `references/interface-design.md`. Agents should use it when creating or editing
 `report.html`: warm cream paper, red accent, deep teal structure, tactile
-controls, click-to-seek charts, tabular metrics, mobile-safe wrapping, and
-reduced-motion support.
+controls, selectable Map/Card/Library visual snapshots, click-to-seek charts,
+tabular metrics, mobile-safe wrapping, and reduced-motion support.
 
 ## Pattern Library Workflow
 
@@ -220,9 +221,10 @@ browser; it exports a JSON handoff with the selected rank, label, pattern ID,
 notes, normalized contour signature, DTW sequence, and suggested CLI command.
 
 For stakeholder review, use `Visual only` in `report.html` to hide the word-heavy
-sections, then use `Download image` to export a PNG visual snapshot. The image is
-rendered locally from the embedded SVG, using the actual waveform, pitch,
-loudness, pause bands, and top pattern contours.
+sections, choose `Map`, `Card`, or `Library`, then use `Download image` to export
+that active PNG visual snapshot. The image is rendered locally from the embedded
+SVG, using the actual waveform, pitch, loudness, pause bands, and top pattern
+contours.
 
 ## Privacy And Sharing
 
@@ -282,4 +284,5 @@ test -f /tmp/prosody-lens-pattern-library.json
 
 For UI changes, open `report.html` and verify audio playback, chart click-to-seek,
 loop duration controls, Pattern Review Workbench JSON export, Visual only mode,
-Download image PNG export, mobile layout, and no console errors.
+Map/Card/Library layout switching, active-layout Download image PNG export,
+mobile layout, and no console errors.

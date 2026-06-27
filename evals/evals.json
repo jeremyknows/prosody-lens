@@ -66,6 +66,12 @@
       "prompt": "Hayley does not need all the words. Show the visual-only report and download just the image.",
       "expected_output": "Uses report.html controls to enable Visual only mode, hides word-heavy summaries/tables/review text, keeps the visual snapshot and charts visible, and verifies Download image exports a non-empty PNG generated locally from the embedded SVG.",
       "files": ["stakeholder-pattern-clip.ogg"]
+    },
+    {
+      "id": 12,
+      "prompt": "Make this more artifact-like: switch between Map, Card, and Library visual layouts and download the active image.",
+      "expected_output": "Uses the report.html visual layout selector, verifies Map/Card/Library each activates a distinct SVG snapshot, and verifies Download image exports a non-empty PNG for the active selected layout.",
+      "files": ["stakeholder-pattern-clip.ogg"]
     }
   ]
 }

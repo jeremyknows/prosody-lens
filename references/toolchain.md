@@ -98,7 +98,8 @@ Recommended JSON/report fields:
 
 Recommended v1 visual report:
 - audio player
-- low-text visual snapshot with local PNG download for stakeholder review
+- low-text Map/Card/Library visual snapshots with local PNG download for
+  stakeholder review
 - waveform track
 - pitch contour track
 - intensity contour track
@@ -109,6 +110,7 @@ Recommended v1 visual report:
 - progression snapshot
 - pattern contour cards and motif table
 - visual-only toggle for hiding word-heavy sections
+- active-layout PNG export from the selected Map, Card, or Library snapshot
 - pattern library match table when `--pattern-library` is supplied
 
 Recommended v2:

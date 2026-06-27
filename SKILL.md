@@ -6,12 +6,12 @@ description: >
   transcript-only feedback.
 license: MIT
 compatibility: >
-  Requires Python 3.11+, numpy, ffmpeg, and ffprobe. No API key required.
+  Requires Python 3.9+, numpy, ffmpeg, and ffprobe. No API key required.
   Optional higher-fidelity upgrades: Praat/Parselmouth, WhisperX or Montreal
   Forced Aligner, openSMILE, librosa, Plotly.
 metadata:
   author: jeremyknows
-  version: "0.7.0"
+  version: "0.8.0"
   category: Audio Analysis & Visualization
   status: EXPERIMENTAL
   last_improved: "2026-06-27"
@@ -45,7 +45,7 @@ available. Prosody analysis without acoustic data is mostly guesswork.
 ## Dependencies
 
 Required local tools:
-- Python 3.11+
+- Python 3.9+
 - `numpy`
 - `ffmpeg`
 - `ffprobe`
@@ -73,7 +73,7 @@ python3 -m pip install -r requirements.txt -r requirements-praat.txt
 |------|------------|--------|
 | Analyze | "analyze this voice memo" / `--analyze` | Markdown report + JSON metrics |
 | Visualize | "visualize the prosody" / `--viz` | Interactive HTML report + Markdown |
-| Visual Export | "visual only" / "download just the image" | Toggle a low-text visual view and export the visual snapshot PNG |
+| Visual Export | "visual only" / "download just the image" | Toggle a low-text visual view, choose Map/Card/Library layouts, and export the active visual snapshot PNG |
 | Compare | "compare these two takes" / `--compare` | Run one report per take, then synthesize differences |
 | Progression | "show progression over time" / `--progression` | Append/read trend records and compare stable metrics |
 | Pattern Discovery | "find prosodic patterns" / `--patterns` | Candidate contour patterns, repeat families, and pattern visuals |
@@ -182,7 +182,9 @@ When the user wants fewer words or a shareable visual:
 
 1. Open `report.html`.
 2. Click `Visual only` to hide summaries, tables, limitations, and review text.
-3. Click `Download image` to export the generated visual snapshot as a PNG.
+3. Choose the visual layout: `Map` for analysis, `Card` for a shareable image,
+   or `Library` for pattern comparison.
+4. Click `Download image` to export the active visual snapshot as a PNG.
 
 The PNG export is generated locally from the report's embedded SVG; it does not
 upload audio or call an external screenshot service.
@@ -256,8 +258,9 @@ Prefer an interactive HTML report for v1:
   tabular numbers, balanced headings, and tactile control states
 - visual snapshot SVG built from the real waveform, pitch, loudness, pause, and
   top-pattern data
+- visual layout selector with `Map`, `Card`, and `Library` views
 - Visual only toggle that hides word-heavy sections for stakeholder review
-- Download image button that exports the visual snapshot PNG
+- Download image button that exports the active visual snapshot PNG
 - top "listen first" moments
 - progression snapshot across opening/middle/closing thirds
 - pattern lens with normalized contour mini-maps for candidate prosodic shapes
@@ -274,6 +277,7 @@ Prefer an interactive HTML report for v1:
 - review candidate buttons, decision segmented control, label/ID fields, notes,
   copy JSON, and download JSON controls
 - visual-only and image-download controls in the main toolbar
+- active visual layout controls near the visual snapshot
 
 Static PNG is useful for sharing, but less useful for inspection. Animation is a
 later enhancement only if it clarifies timing; do not build animation for theater.
@@ -330,14 +334,14 @@ falls back otherwise.
 ## Output Scorecard
 
 Read `references/output-scorecard.md` before reviewing publish-quality outputs.
-Minimum acceptable report quality is 11/12, with these mandatory:
+Minimum acceptable report quality is 12/13, with these mandatory:
 - analyzer ran on the actual audio
 - JSON, Markdown, and HTML artifacts exist
 - pattern requests include `pattern_analysis` in `prosody.json`
 - pattern-library or review requests include a usable Pattern Review Workbench
   in `report.html`
 - visual-sharing requests include working `Visual only` and `Download image`
-  controls
+  controls, plus `Map`, `Card`, and `Library` visual layouts
 - limitations are stated
 - no claims are made about medical conditions, honesty, personality, emotion, or
   intent
@@ -363,7 +367,8 @@ For HTML/UI changes, open `report.html` and verify:
   generates valid JSON with `signature`, `sequence`, and `suggested_cli`, and
   copy/download controls are wired
 - Visual only hides word-heavy sections without breaking charts, and Download
-  image produces a non-empty PNG from the visual snapshot
+  image produces a non-empty PNG from the active `Map`, `Card`, or `Library`
+  visual snapshot
 - mobile layout has no horizontal overflow
 - browser console has no errors
 

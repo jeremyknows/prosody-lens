@@ -135,8 +135,9 @@ Show more than the waveform. Good pattern artifacts can include:
    exemplars, with score, label, and click-to-seek.
 5. **Pattern Review Workbench** — approve/reject/rename candidates, add notes,
    and export JSON for the library update handoff.
-6. **Visual Snapshot** — a low-text SVG/PNG export with pitch, loudness,
-   waveform, pauses, time axis, and top pattern cards for stakeholder review.
+6. **Visual Snapshot** — low-text SVG/PNG exports for stakeholder review:
+   `Map` for analysis, `Card` for sharing, and `Library` for pattern
+   comparison.
 7. **Future Recurrence Matrix** — a heatmap of similar contour windows. Useful
    once the project needs stronger repeated-pattern discovery.
 8. **Future Aligned Transcript Lane** — words/phonemes under the contour. This
@@ -144,7 +145,7 @@ Show more than the waveform. Good pattern artifacts can include:
 
 ## Current Local Method
 
-The local v0.6 method:
+The local v0.8 method:
 
 1. Convert audio to mono WAV.
 2. Extract pitch and intensity with Praat/Parselmouth when installed, or use the
@@ -166,7 +167,8 @@ The local v0.6 method:
    approved examples in a JSON pattern library.
 10. Expose a static review workbench so an analyst can approve/reject/rename a
     candidate and export the exact JSON handoff.
-11. Generate a visual snapshot SVG and local PNG export for low-text review.
+11. Generate selectable Map/Card/Library visual snapshot SVGs and local PNG
+    export for the active layout.
 
 This is intentionally conservative. It is a discovery and visualization aid, not
 a final speech-science classifier.

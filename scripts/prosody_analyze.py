@@ -2186,7 +2186,13 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
             coords.append(f"{px:.1f},{py:.1f}")
         return " ".join(coords)
 
-    def visual_snapshot_svg() -> str:
+    def visual_text(value, fallback: str = "Pattern", limit: int = 34) -> str:
+        text = str(value or fallback).strip() or fallback
+        if len(text) > limit:
+            text = text[: max(1, limit - 3)].rstrip() + "..."
+        return html.escape(text)
+
+    def visual_snapshot_map_svg() -> str:
         primary = patterns[0] if patterns else {}
         primary_label = str(primary.get("label") or "Prosody Snapshot").title()
         pitch_points = visual_series_points(pitch, 245, 205, 1070, 122)
@@ -2225,7 +2231,7 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
                 f'</g>'
             )
         return f"""
-<svg id="visualSnapshotSvg" class="visual-snapshot-svg" viewBox="0 0 1440 900" role="img" aria-label="Visual prosody snapshot" xmlns="http://www.w3.org/2000/svg">
+<svg id="visualSnapshotSvg" class="visual-snapshot-svg" data-background="#fef9ec" viewBox="0 0 1440 900" role="img" aria-label="Visual prosody map" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="paperGlow" x1="0" x2="0" y1="0" y2="1">
       <stop offset="0%" stop-color="#fffdf5" />
@@ -2282,12 +2288,158 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
 </svg>
 """
 
-    visual_snapshot = visual_snapshot_svg()
+    def visual_snapshot_card_svg() -> str:
+        primary = patterns[0] if patterns else {}
+        primary_label = visual_text(str(primary.get("label") or "Prosody Snapshot").title(), limit=30)
+        pitch_points = visual_series_points(pitch, 108, 478, 864, 232)
+        energy_points = visual_series_points(energy, 108, 782, 864, 132)
+        waveform_bars = visual_waveform_bars(108, 1008, 864, 118)
+        pause_bands = visual_pause_bands(108, 456, 864, 468)
+        pattern_curve = visual_pattern_curve(primary, 650, 160, 270, 210)
+        energy_area = ""
+        if energy_points:
+            baseline = 914
+            energy_area = f'<polygon points="108,{baseline} {energy_points} 972,{baseline}" fill="url(#cardEnergyFade)" opacity="0.72" />'
+        return f"""
+<svg id="visualSnapshotCardSvg" class="visual-snapshot-svg" data-background="#fffaf0" viewBox="0 0 1080 1350" role="img" aria-label="Visual prosody card" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="cardPaperGlow" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#fffdf5" />
+      <stop offset="100%" stop-color="#f4e5c2" />
+    </linearGradient>
+    <linearGradient id="cardEnergyFade" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#e53546" stop-opacity="0.52" />
+      <stop offset="100%" stop-color="#e53546" stop-opacity="0" />
+    </linearGradient>
+    <style>
+      .card-eyebrow {{ fill: #063f4b; font: 800 23px Avenir Next, Trebuchet MS, sans-serif; letter-spacing: 8px; }}
+      .card-title {{ fill: #e53546; font: 900 104px Avenir Next Condensed, Arial Black, sans-serif; letter-spacing: 1px; }}
+      .card-pattern {{ fill: #063f4b; font: 800 58px Georgia, Times New Roman, serif; }}
+      .card-sub {{ fill: #12313a; font: 25px Avenir Next, Trebuchet MS, sans-serif; }}
+      .card-label {{ fill: #12313a; font: 800 19px Avenir Next, Trebuchet MS, sans-serif; letter-spacing: 2px; }}
+      .card-small {{ fill: #12313a; font: 22px Avenir Next, Trebuchet MS, sans-serif; }}
+      .card-stat-value {{ fill: #fffdf5; font: 900 36px Avenir Next Condensed, Arial Black, sans-serif; }}
+      .card-stat-label {{ fill: #bcd2d1; font: 800 15px Avenir Next, Trebuchet MS, sans-serif; letter-spacing: 2px; }}
+    </style>
+  </defs>
+  <rect width="1080" height="1350" fill="url(#cardPaperGlow)" />
+  <rect x="48" y="48" width="984" height="1254" rx="30" fill="none" stroke="#063f4b" stroke-width="4" />
+  <text x="86" y="118" class="card-eyebrow">PROSODY LENS</text>
+  <text x="84" y="225" class="card-title">VOICE MAP</text>
+  <text x="88" y="306" class="card-pattern">{primary_label}</text>
+  <text x="90" y="356" class="card-sub">Pitch, loudness, pauses, and waveform as one shareable pattern.</text>
+  <circle cx="790" cy="245" r="166" fill="#f8efd8" stroke="#063f4b" stroke-width="4" />
+  <line x1="660" y1="266" x2="920" y2="266" stroke="#8aa0a2" stroke-width="2" stroke-dasharray="8 8" />
+  <polyline fill="none" stroke="#063f4b" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" points="{pattern_curve}" />
+  <g>
+    <rect x="84" y="390" width="284" height="86" rx="18" fill="#063f4b" />
+    <text x="112" y="427" class="card-stat-label">DURATION</text>
+    <text x="112" y="462" class="card-stat-value">{html.escape(fmt_time(duration))}</text>
+    <rect x="398" y="390" width="284" height="86" rx="18" fill="#063f4b" />
+    <text x="426" y="427" class="card-stat-label">PAUSES</text>
+    <text x="426" y="462" class="card-stat-value">{len(pauses)}</text>
+    <rect x="712" y="390" width="284" height="86" rx="18" fill="#063f4b" />
+    <text x="740" y="427" class="card-stat-label">PATTERNS</text>
+    <text x="740" y="462" class="card-stat-value">{len(patterns)}</text>
+  </g>
+  <text x="108" y="536" class="card-label">PITCH CONTOUR</text>
+  <text x="108" y="842" class="card-label" fill="#e53546">LOUDNESS SHAPE</text>
+  <text x="108" y="1068" class="card-label" fill="#6f7771">WAVEFORM</text>
+  <line x1="108" y1="478" x2="972" y2="478" stroke="#d8cdbb" stroke-dasharray="8 8" />
+  <line x1="108" y1="710" x2="972" y2="710" stroke="#d8cdbb" stroke-dasharray="8 8" />
+  <line x1="108" y1="914" x2="972" y2="914" stroke="#dfb1a9" />
+  <line x1="108" y1="1067" x2="972" y2="1067" stroke="#d0c7b8" />
+  {pause_bands}
+  {energy_area}
+  <polyline fill="none" stroke="#064a56" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" points="{pitch_points}" />
+  <polyline fill="none" stroke="#e53546" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" points="{energy_points}" />
+  {waveform_bars}
+  <line x1="108" y1="1194" x2="972" y2="1194" stroke="#064a56" stroke-width="5" />
+  <polygon points="972,1194 946,1179 946,1209" fill="#064a56" />
+  <text x="108" y="1234" class="card-small">0</text>
+  <text x="898" y="1234" class="card-small">{html.escape(fmt_time(duration))}</text>
+</svg>
+"""
+
+    def visual_snapshot_library_svg() -> str:
+        candidates = (patterns or [{}])[:6]
+        tiles = []
+        for index, candidate in enumerate(candidates):
+            col = index % 3
+            row = index // 3
+            tx = 58 + col * 462
+            ty = 230 + row * 314
+            selected = index == 0
+            fill = "#fffdf5" if selected else "#fbf2dd"
+            stroke = "#063f4b" if selected else "#dfc48a"
+            width_attr = "4" if selected else "2"
+            curve = visual_pattern_curve(candidate, tx + 42, ty + 82, 338, 142)
+            label = visual_text(str(candidate.get("label") or "Contour").title(), limit=28)
+            rank = html.escape(f"#{candidate.get('rank') or index + 1}")
+            start = html.escape(fmt_time(candidate.get("start")))
+            tiles.append(
+                f'<g>'
+                f'<rect x="{tx}" y="{ty}" width="402" height="258" rx="24" fill="{fill}" stroke="{stroke}" stroke-width="{width_attr}" />'
+                f'<text x="{tx + 30}" y="{ty + 48}" class="library-rank">{rank}</text>'
+                f'<text x="{tx + 92}" y="{ty + 48}" class="library-label">{label}</text>'
+                f'<line x1="{tx + 42}" y1="{ty + 170}" x2="{tx + 380}" y2="{ty + 170}" stroke="#8aa0a2" stroke-width="1.8" stroke-dasharray="7 7" />'
+                f'<polyline fill="none" stroke="#064a56" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" points="{curve}" />'
+                f'<text x="{tx + 30}" y="{ty + 232}" class="library-meta">{start}</text>'
+                f'<circle cx="{tx + 352}" cy="{ty + 224}" r="18" fill="{"#e53546" if selected else "#d9c28a"}" />'
+                f'</g>'
+            )
+        waveform_bars = visual_waveform_bars(82, 930, 1276, 82)
+        return f"""
+<svg id="visualSnapshotLibrarySvg" class="visual-snapshot-svg" data-background="#fef9ec" viewBox="0 0 1440 1080" role="img" aria-label="Visual pattern library" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="libraryPaperGlow" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#fffdf5" />
+      <stop offset="100%" stop-color="#f4e8ce" />
+    </linearGradient>
+    <style>
+      .library-eyebrow {{ fill: #063f4b; font: 800 20px Avenir Next, Trebuchet MS, sans-serif; letter-spacing: 8px; }}
+      .library-title {{ fill: #063f4b; font: 800 78px Georgia, Times New Roman, serif; }}
+      .library-sub {{ fill: #12313a; font: 24px Avenir Next, Trebuchet MS, sans-serif; }}
+      .library-rank {{ fill: #e53546; font: 900 28px Avenir Next Condensed, Arial Black, sans-serif; }}
+      .library-label {{ fill: #063f4b; font: 800 28px Georgia, Times New Roman, serif; }}
+      .library-meta {{ fill: #12313a; font: 21px Avenir Next, Trebuchet MS, sans-serif; }}
+      .library-axis {{ fill: #12313a; font: 19px Avenir Next, Trebuchet MS, sans-serif; }}
+    </style>
+  </defs>
+  <rect width="1440" height="1080" fill="url(#libraryPaperGlow)" />
+  <text x="56" y="66" class="library-eyebrow">PATTERN LIBRARY</text>
+  <text x="54" y="148" class="library-title">Contour Family</text>
+  <text x="58" y="190" class="library-sub">The recurring pitch shapes this recording offers for review, comparison, and reuse.</text>
+  {''.join(tiles)}
+  <rect x="58" y="884" width="1324" height="142" rx="24" fill="#fffdf5" stroke="#dfc48a" stroke-width="2" />
+  <text x="82" y="924" class="library-axis">Full waveform</text>
+  <line x1="82" y1="971" x2="1358" y2="971" stroke="#d0c7b8" />
+  {waveform_bars}
+  <text x="82" y="1016" class="library-axis">0</text>
+  <text x="1280" y="1016" class="library-axis">{html.escape(fmt_time(duration))}</text>
+</svg>
+"""
+
+    visual_snapshot = f"""
+<div class="visual-layout-switch" role="group" aria-label="Visual snapshot layout">
+  <button type="button" class="visual-layout-button active" data-visual-layout="map" aria-pressed="true">Map</button>
+  <button type="button" class="visual-layout-button" data-visual-layout="card" aria-pressed="false">Card</button>
+  <button type="button" class="visual-layout-button" data-visual-layout="library" aria-pressed="false">Library</button>
+</div>
+<div class="visual-snapshot-frame" data-active-layout="map">
+  <div class="visual-layout-panel active" data-visual-layout-panel="map">{visual_snapshot_map_svg()}</div>
+  <div class="visual-layout-panel" data-visual-layout-panel="card">{visual_snapshot_card_svg()}</div>
+  <div class="visual-layout-panel" data-visual-layout-panel="library">{visual_snapshot_library_svg()}</div>
+</div>
+"""
     visual_script = r"""
 (function () {
   const visualToggle = document.getElementById("visualOnlyToggle");
   const downloadButton = document.getElementById("downloadVisualImage");
   const visualStatus = document.getElementById("visualDownloadStatus");
+  const layoutButtons = Array.from(document.querySelectorAll("[data-visual-layout]"));
+  const layoutPanels = Array.from(document.querySelectorAll("[data-visual-layout-panel]"));
+  const visualFrame = document.querySelector(".visual-snapshot-frame");
 
   function setVisualStatus(message) {
     if (!visualStatus) return;
@@ -2304,6 +2456,28 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
     visualToggle.textContent = active ? "Full view" : "Visual only";
   }
 
+  function currentVisualLayout() {
+    const activePanel = document.querySelector("[data-visual-layout-panel].active");
+    return activePanel ? activePanel.dataset.visualLayoutPanel : "map";
+  }
+
+  function setVisualLayout(layout) {
+    layoutButtons.forEach((button) => {
+      const active = button.dataset.visualLayout === layout;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+    layoutPanels.forEach((panel) => {
+      panel.classList.toggle("active", panel.dataset.visualLayoutPanel === layout);
+    });
+    if (visualFrame) visualFrame.dataset.activeLayout = layout;
+  }
+
+  function activeVisualSvg() {
+    const activePanel = document.querySelector("[data-visual-layout-panel].active");
+    return (activePanel && activePanel.querySelector("svg")) || document.getElementById("visualSnapshotSvg");
+  }
+
   function downloadBlob(blob, filename) {
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
@@ -2315,7 +2489,7 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
   }
 
   async function exportVisualPngBlob() {
-    const svg = document.getElementById("visualSnapshotSvg");
+    const svg = activeVisualSvg();
     if (!svg) throw new Error("visual snapshot missing");
     const source = new XMLSerializer().serializeToString(svg);
     const svgBlob = new Blob([source], { type: "image/svg+xml;charset=utf-8" });
@@ -2331,7 +2505,7 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
       canvas.width = Math.round(viewBox.width * scale);
       canvas.height = Math.round(viewBox.height * scale);
       const context = canvas.getContext("2d");
-      context.fillStyle = "#fef9ec";
+      context.fillStyle = svg.dataset.background || "#fef9ec";
       context.fillRect(0, 0, canvas.width, canvas.height);
       context.drawImage(image, 0, 0, canvas.width, canvas.height);
       return await new Promise((resolve, reject) => {
@@ -2346,7 +2520,7 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
     try {
       setVisualStatus("Preparing image");
       const blob = await exportVisualPngBlob();
-      downloadBlob(blob, "prosody-visual-snapshot.png");
+      downloadBlob(blob, `prosody-visual-${currentVisualLayout()}.png`);
       setVisualStatus("Image downloaded");
     } catch (error) {
       setVisualStatus("Image export failed");
@@ -2354,6 +2528,9 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
   }
 
   window.prosodyExportVisualPng = exportVisualPngBlob;
+  window.prosodySetVisualLayout = setVisualLayout;
+  window.prosodyGetVisualLayout = currentVisualLayout;
+  layoutButtons.forEach((button) => button.addEventListener("click", () => setVisualLayout(button.dataset.visualLayout)));
   if (visualToggle) visualToggle.addEventListener("click", () => setVisualOnly(!document.body.classList.contains("visual-only")));
   if (downloadButton) downloadButton.addEventListener("click", downloadVisualImage);
 })();
@@ -2460,7 +2637,13 @@ audio {{ filter: drop-shadow(0 8px 22px rgba(23, 44, 53, 0.12)); }}
 .view-toolbar button:hover, .view-toolbar button.active {{ background: var(--accent); color: white; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18), 0 8px 18px -12px rgba(229,53,70,0.9); }}
 .view-toolbar button:active {{ transform: scale(0.96); }}
 #visualDownloadStatus {{ min-height: 20px; }}
+.visual-layout-switch {{ display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 10px; }}
+.visual-layout-button {{ appearance: none; min-height: 38px; border: 0; border-radius: 10px; background: var(--surface); color: var(--teal); padding: 8px 12px; cursor: pointer; font: inherit; font-size: 13px; font-weight: 850; box-shadow: inset 0 0 0 1px rgba(23,44,53,0.11), var(--shadow-border); transition-property: transform, background-color, box-shadow, color; transition-duration: 150ms; transition-timing-function: cubic-bezier(0.2, 0, 0, 1); }}
+.visual-layout-button:hover, .visual-layout-button.active {{ background: var(--teal); color: var(--paper); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18), 0 8px 18px -12px rgba(18,49,58,0.65); }}
+.visual-layout-button:active {{ transform: scale(0.96); }}
 .visual-snapshot-frame {{ background: var(--surface); box-shadow: var(--shadow-border); border-radius: 18px; padding: 10px; margin: 12px 0 22px; overflow: hidden; }}
+.visual-layout-panel {{ display: none; }}
+.visual-layout-panel.active {{ display: block; }}
 .visual-snapshot-svg {{ width: 100%; height: auto; border-radius: 12px; }}
 body.visual-only .word-heavy, body.visual-only .pattern-card p, body.visual-only .review-pick, body.visual-only .notice.warn, body.visual-only .track .caption {{ display: none !important; }}
 body.visual-only main {{ max-width: 1180px; }}
@@ -2533,7 +2716,7 @@ code {{ background: var(--teal-soft); padding: 2px 5px; border-radius: 5px; }}
 
 <section class="visual-priority">
 <h2>Visual Snapshot</h2>
-<div class="visual-snapshot-frame">{visual_snapshot}</div>
+{visual_snapshot}
 </section>
 
 <section class="word-heavy">
@@ -2908,7 +3091,7 @@ def analyze(args: argparse.Namespace) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     wav_path = out_dir / "audio.wav"
     playback_path = out_dir / "audio.mp3"
-    generated_at = dt.datetime.now(dt.UTC).isoformat()
+    generated_at = dt.datetime.now(dt.timezone.utc).isoformat()
     pattern_library_path = Path(args.pattern_library).expanduser().resolve() if args.pattern_library else None
     if args.save_pattern_label and pattern_library_path is None:
         pattern_library_path = out_dir / "pattern-library.json"
