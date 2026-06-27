@@ -17,6 +17,8 @@ Score each item yes/no:
    type, take label, and/or history metadata.
 8. The interpretation avoids claims about medical conditions, honesty,
    personality, emotion, or intent.
+9. If a pattern library is supplied, the report shows library status, saved
+   exemplar metadata when relevant, and nearest approved-example matches.
 
-Passing threshold for publish-quality outputs: 7/8, with items 1, 2, 4, and 8
+Passing threshold for publish-quality outputs: 8/9, with items 1, 2, 4, 8, and 9
 required.

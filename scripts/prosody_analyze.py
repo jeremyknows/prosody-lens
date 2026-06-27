@@ -21,6 +21,7 @@ import hashlib
 import html
 import json
 import math
+import re
 import shutil
 import subprocess
 import sys
@@ -28,6 +29,9 @@ import wave
 from pathlib import Path
 
 import numpy as np
+
+
+PATTERN_LIBRARY_SCHEMA_VERSION = "0.1"
 
 
 def run(cmd: list[str]) -> None:
@@ -414,6 +418,273 @@ def vector_similarity(a: list[float], b: list[float]) -> float:
     if not math.isfinite(corr):
         return 0.0
     return round(max(-1.0, min(1.0, corr)), 3)
+
+
+def slugify_label(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+    return slug or "pattern"
+
+
+def numeric_point(value: object) -> float:
+    if value is None:
+        return 0.0
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(number):
+        return 0.0
+    return number
+
+
+def pattern_signature_from_points(pitch_points: list, energy_points: list) -> list[float]:
+    if not pitch_points and not energy_points:
+        return []
+    pitch_signature = [numeric_point(item) for item in pitch_points]
+    energy_signature = [numeric_point(item) for item in energy_points]
+    combined = np.array(pitch_signature + energy_signature, dtype=np.float64)
+    return [round(float(v), 3) for v in normalize_vector(combined)]
+
+
+def pattern_signature_from_candidate(candidate: dict) -> list[float]:
+    return pattern_signature_from_points(
+        candidate.get("pitch_points_st") or [],
+        candidate.get("energy_points_z") or [],
+    )
+
+
+def pattern_signature_from_example(example: dict) -> list[float]:
+    signature = example.get("signature")
+    if isinstance(signature, list) and signature:
+        return [numeric_point(item) for item in signature]
+    return pattern_signature_from_points(
+        example.get("pitch_points_st") or [],
+        example.get("energy_points_z") or [],
+    )
+
+
+def blank_pattern_library() -> dict:
+    return {
+        "schema_version": PATTERN_LIBRARY_SCHEMA_VERSION,
+        "description": "Prosody Lens pattern library. Seed patterns provide vocabulary; approved examples provide matching evidence.",
+        "patterns": [],
+    }
+
+
+def load_pattern_library(library_path: Path) -> dict:
+    if not library_path.exists():
+        return blank_pattern_library()
+    data = json.loads(library_path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise RuntimeError(f"pattern library must be a JSON object: {library_path}")
+    data.setdefault("schema_version", PATTERN_LIBRARY_SCHEMA_VERSION)
+    patterns = data.setdefault("patterns", [])
+    if not isinstance(patterns, list):
+        raise RuntimeError(f"pattern library 'patterns' must be a list: {library_path}")
+    return data
+
+
+def pattern_library_counts(library: dict) -> tuple[int, int]:
+    patterns = library.get("patterns") or []
+    pattern_count = len(patterns)
+    example_count = sum(len(pattern.get("examples") or []) for pattern in patterns if isinstance(pattern, dict))
+    return pattern_count, example_count
+
+
+def library_path_label(library_path: Path, include_local_paths: bool) -> str:
+    return str(library_path) if include_local_paths else library_path.name
+
+
+def pattern_library_info(library: dict, library_path: Path, threshold: float, include_local_paths: bool, status: str) -> dict:
+    pattern_count, example_count = pattern_library_counts(library)
+    return {
+        "status": status,
+        "path": library_path_label(library_path, include_local_paths),
+        "schema_version": library.get("schema_version", PATTERN_LIBRARY_SCHEMA_VERSION),
+        "pattern_count": pattern_count,
+        "example_count": example_count,
+        "match_threshold": round(float(threshold), 3),
+    }
+
+
+def flatten_library_examples(library: dict) -> list[dict]:
+    rows: list[dict] = []
+    for pattern in library.get("patterns") or []:
+        if not isinstance(pattern, dict):
+            continue
+        pattern_id = str(pattern.get("id") or slugify_label(str(pattern.get("label") or "pattern")))
+        label = str(pattern.get("label") or pattern_id)
+        status = str(pattern.get("status") or "unreviewed")
+        for example in pattern.get("examples") or []:
+            if not isinstance(example, dict):
+                continue
+            signature = pattern_signature_from_example(example)
+            if not signature:
+                continue
+            rows.append(
+                {
+                    "pattern_id": pattern_id,
+                    "label": label,
+                    "status": status,
+                    "example_id": str(example.get("example_id") or "example"),
+                    "source_audio": example.get("source_audio"),
+                    "signature": signature,
+                }
+            )
+    return rows
+
+
+def apply_pattern_library_matches(
+    pattern_analysis: dict,
+    library: dict,
+    library_path: Path,
+    threshold: float,
+    include_local_paths: bool,
+) -> None:
+    examples = flatten_library_examples(library)
+    if not examples:
+        pattern_analysis["library"] = pattern_library_info(
+            library,
+            library_path,
+            threshold,
+            include_local_paths,
+            "loaded_no_examples",
+        )
+        pattern_analysis["library_matches"] = []
+        return
+
+    all_matches: list[dict] = []
+    for candidate in pattern_analysis.get("candidates") or []:
+        candidate_signature = pattern_signature_from_candidate(candidate)
+        matches = []
+        for example in examples:
+            score = vector_similarity(candidate_signature, example["signature"])
+            if score < threshold:
+                continue
+            matches.append(
+                {
+                    "pattern_id": example["pattern_id"],
+                    "label": example["label"],
+                    "status": example["status"],
+                    "example_id": example["example_id"],
+                    "source_audio": example.get("source_audio"),
+                    "score": score,
+                }
+            )
+        matches = sorted(matches, key=lambda item: float(item["score"]), reverse=True)[:3]
+        if not matches:
+            continue
+        candidate["library_matches"] = matches
+        best = dict(matches[0])
+        best.update(
+            {
+                "candidate_rank": candidate.get("rank"),
+                "candidate_start": candidate.get("start"),
+                "candidate_end": candidate.get("end"),
+                "candidate_label": candidate.get("label"),
+                "candidate_family_id": candidate.get("family_id"),
+            }
+        )
+        all_matches.append(best)
+
+    status = "matched" if all_matches else "loaded_no_matches"
+    pattern_analysis["library"] = pattern_library_info(library, library_path, threshold, include_local_paths, status)
+    pattern_analysis["library_matches"] = sorted(all_matches, key=lambda item: float(item["score"]), reverse=True)[:12]
+
+
+def save_pattern_exemplar(
+    pattern_analysis: dict,
+    library: dict,
+    label: str,
+    pattern_id: str | None,
+    rank: int,
+    notes: str | None,
+    source_audio: str,
+    generated_at: str,
+    speaker_id: str | None,
+    goal: str | None,
+) -> dict:
+    candidates = pattern_analysis.get("candidates") or []
+    selected = next((item for item in candidates if int(item.get("rank", -1)) == int(rank)), None)
+    if selected is None:
+        raise RuntimeError(f"cannot save pattern exemplar; no candidate with rank {rank}")
+
+    stable_id = slugify_label(pattern_id or label)
+    patterns = library.setdefault("patterns", [])
+    pattern = next((item for item in patterns if isinstance(item, dict) and item.get("id") == stable_id), None)
+    if pattern is None:
+        pattern = {
+            "id": stable_id,
+            "label": label,
+            "status": "approved",
+            "basis": "analyst-approved exemplar",
+            "description": "Added from a reviewed Prosody Lens candidate.",
+            "examples": [],
+        }
+        patterns.append(pattern)
+        action = "added"
+    else:
+        pattern.setdefault("label", label)
+        pattern["status"] = "approved" if pattern.get("status") in (None, "seed", "unreviewed") else pattern.get("status")
+        pattern.setdefault("basis", "analyst-approved exemplar")
+        pattern.setdefault("examples", [])
+        action = "updated"
+
+    example_seed = f"{stable_id}:{source_audio}:{selected.get('start')}:{selected.get('end')}:{generated_at}"
+    example = {
+        "example_id": hashlib.sha1(example_seed.encode("utf-8")).hexdigest()[:12],
+        "created_at": generated_at,
+        "source_audio": source_audio,
+        "start": selected.get("start"),
+        "end": selected.get("end"),
+        "duration": selected.get("duration"),
+        "rank_at_capture": selected.get("rank"),
+        "candidate_family_id": selected.get("family_id"),
+        "candidate_contour_label": selected.get("label"),
+        "candidate_score": selected.get("score"),
+        "pitch_trace_quality": selected.get("pitch_trace_quality"),
+        "pitch_points_st": selected.get("pitch_points_st") or [],
+        "energy_points_z": selected.get("energy_points_z") or [],
+        "signature": pattern_signature_from_candidate(selected),
+        "speaker_id": speaker_id,
+        "goal": goal,
+        "notes": notes or "",
+    }
+    examples = pattern.setdefault("examples", [])
+    existing_index = None
+    for index, existing in enumerate(examples):
+        if not isinstance(existing, dict):
+            continue
+        same_source = existing.get("source_audio") == source_audio
+        same_start = abs(numeric_point(existing.get("start")) - numeric_point(example["start"])) < 0.01
+        same_end = abs(numeric_point(existing.get("end")) - numeric_point(example["end"])) < 0.01
+        if same_source and same_start and same_end:
+            existing_index = index
+            break
+    if existing_index is None:
+        examples.append(example)
+    else:
+        examples[existing_index].update(example)
+        action = "updated"
+
+    library["schema_version"] = library.get("schema_version", PATTERN_LIBRARY_SCHEMA_VERSION)
+    library.setdefault("created_at", generated_at)
+    library["updated_at"] = generated_at
+    return {
+        "action": action,
+        "pattern_id": stable_id,
+        "label": label,
+        "example_id": example["example_id"],
+        "candidate_rank": selected.get("rank"),
+        "start": selected.get("start"),
+        "end": selected.get("end"),
+        "score": selected.get("score"),
+    }
+
+
+def write_pattern_library(library_path: Path, library: dict) -> None:
+    library_path.parent.mkdir(parents=True, exist_ok=True)
+    library_path.write_text(json.dumps(library, indent=2) + "\n", encoding="utf-8")
 
 
 def pause_near(pauses: list[dict[str, float]], point: float, side: str) -> float:
@@ -830,6 +1101,8 @@ def append_history(history_path: Path, data: dict) -> None:
             "summary": data.get("pattern_analysis", {}).get("summary"),
             "family_count": len(data.get("pattern_analysis", {}).get("families", [])),
             "candidate_count": len(data.get("pattern_analysis", {}).get("candidates", [])),
+            "library_status": data.get("pattern_analysis", {}).get("library", {}).get("status"),
+            "library_match_count": len(data.get("pattern_analysis", {}).get("library_matches", [])),
         },
     }
     history_path.parent.mkdir(parents=True, exist_ok=True)
@@ -887,6 +1160,8 @@ def write_report(out_dir: Path, data: dict, audio_name: str) -> None:
     peaks = data.get("acoustic_peak_candidates", data.get("emphasis_candidates", []))
     pattern_analysis = data.get("pattern_analysis", {})
     patterns = pattern_analysis.get("candidates", [])
+    library_info = pattern_analysis.get("library", {})
+    library_matches = pattern_analysis.get("library_matches", [])
     share = data["share"]
     lines = [
         "# Prosody Lens Report",
@@ -924,13 +1199,37 @@ def write_report(out_dir: Path, data: dict, audio_name: str) -> None:
         lines.append(f"- Known pattern label: {pattern_analysis['known_pattern_label']}")
     if pattern_analysis.get("operator_notes"):
         lines.append(f"- Pattern notes: {pattern_analysis['operator_notes']}")
+    if library_info:
+        lines.append(
+            f"- Pattern library: {library_info.get('status', 'unknown')} "
+            f"({library_info.get('pattern_count', 0)} patterns, {library_info.get('example_count', 0)} examples, "
+            f"threshold {library_info.get('match_threshold', 'n/a')})."
+        )
+    if library_info.get("saved_exemplar"):
+        saved = library_info["saved_exemplar"]
+        lines.append(
+            f"- Saved exemplar: {saved.get('label')} / `{saved.get('pattern_id')}` from candidate "
+            f"#{saved.get('candidate_rank')} ({fmt_time(saved.get('start'))} to {fmt_time(saved.get('end'))})."
+        )
+    if library_matches:
+        lines.append("- Library matches:")
+        for match in library_matches[:6]:
+            lines.append(
+                f"  - candidate #{match.get('candidate_rank')} {fmt_time(match.get('candidate_start'))} to "
+                f"{fmt_time(match.get('candidate_end'))}: {match.get('label')} "
+                f"(score {match.get('score')}, example `{match.get('example_id')}`)"
+            )
     if patterns:
         for item in patterns[:10]:
+            match = (item.get("library_matches") or [{}])[0]
+            match_text = ""
+            if match:
+                match_text = f", library match {match.get('label')} score {match.get('score')}"
             lines.append(
                 f"- {item['family_id']} #{item['rank']} {fmt_time(item['start'])} to {fmt_time(item['end'])}: "
                 f"{item['label']} (score {item['score']}, pitch range {fmt(item.get('pitch_range_st'), ' st')}, "
                 f"energy range {fmt(item.get('energy_range_db'), ' dB')}, "
-                f"pitch trace {item.get('pitch_trace_quality', 'n/a')})"
+                f"pitch trace {item.get('pitch_trace_quality', 'n/a')}{match_text})"
             )
     else:
         lines.append("- No candidate contour patterns detected.")
@@ -1049,6 +1348,38 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
     peaks = data.get("acoustic_peak_candidates", data.get("emphasis_candidates", []))
     pattern_analysis = data.get("pattern_analysis", {})
     patterns = pattern_analysis.get("candidates", [])
+    library_info = pattern_analysis.get("library", {})
+    library_matches = pattern_analysis.get("library_matches", [])
+
+    def top_library_match(item: dict) -> dict:
+        matches = item.get("library_matches") or []
+        return matches[0] if matches else {}
+
+    def library_match_cell(item: dict) -> str:
+        match = top_library_match(item)
+        if not match:
+            return "none"
+        return f"{html.escape(str(match.get('label')))} <span class=\"score\">{html.escape(str(match.get('score')))}</span>"
+
+    def pattern_card_html(item: dict) -> str:
+        match = top_library_match(item)
+        match_html = ""
+        if match:
+            match_html = (
+                f"<p class=\"match-line\">Library match: "
+                f"<span class=\"match-pill\">{html.escape(str(match.get('label')))}</span> "
+                f"score {html.escape(str(match.get('score')))}</p>"
+            )
+        return (
+            f"<article class=\"pattern-card\">"
+            f"<div class=\"pattern-head\"><span>{html.escape(str(item['family_id']))}</span>"
+            f"<button class=\"seek\" data-seek=\"{float(item['start']):.3f}\" data-end=\"{float(item['end']):.3f}\">{html.escape(fmt_time(item['start']))}</button></div>"
+            f"{pattern_mini_svg(item)}"
+            f"<div class=\"pattern-title\">{html.escape(str(item['label']))}</div>"
+            f"<p>Pitch range {html.escape(fmt(item.get('pitch_range_st'), ' st'))}; energy range {html.escape(fmt(item.get('energy_range_db'), ' dB'))}; pitch trace {html.escape(str(item.get('pitch_trace_quality', 'n/a')))}; score {html.escape(str(item['score']))}.</p>"
+            f"{match_html}"
+            f"</article>"
+        )
 
     cards = "\n".join(
         [
@@ -1076,18 +1407,7 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
         for item in synthesis["listen_first"]
     ) or "<li>No strong acoustic peaks detected by the fallback analyzer.</li>"
 
-    pattern_cards = "\n".join(
-        (
-            f"<article class=\"pattern-card\">"
-            f"<div class=\"pattern-head\"><span>{html.escape(str(item['family_id']))}</span>"
-            f"<button class=\"seek\" data-seek=\"{float(item['start']):.3f}\" data-end=\"{float(item['end']):.3f}\">{html.escape(fmt_time(item['start']))}</button></div>"
-            f"{pattern_mini_svg(item)}"
-            f"<div class=\"pattern-title\">{html.escape(str(item['label']))}</div>"
-            f"<p>Pitch range {html.escape(fmt(item.get('pitch_range_st'), ' st'))}; energy range {html.escape(fmt(item.get('energy_range_db'), ' dB'))}; pitch trace {html.escape(str(item.get('pitch_trace_quality', 'n/a')))}; score {html.escape(str(item['score']))}.</p>"
-            f"</article>"
-        )
-        for item in patterns[:8]
-    ) or '<div class="notice">No candidate contour patterns detected.</div>'
+    pattern_cards = "\n".join(pattern_card_html(item) for item in patterns[:8]) or '<div class="notice">No candidate contour patterns detected.</div>'
 
     pattern_rows = "\n".join(
         (
@@ -1098,10 +1418,32 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
             f"<td>{html.escape(str(item['label']))}</td>"
             f"<td>{html.escape(fmt(item.get('pitch_range_st'), ' st'))}</td>"
             f"<td>{html.escape(fmt(item.get('energy_range_db'), ' dB'))}</td>"
-            f"<td>{html.escape(str(item.get('pitch_trace_quality', 'n/a')))}</td></tr>"
+            f"<td>{html.escape(str(item.get('pitch_trace_quality', 'n/a')))}</td>"
+            f"<td>{library_match_cell(item)}</td></tr>"
         )
         for item in patterns[:16]
-    ) or '<tr><td colspan="8">No candidate contour patterns detected.</td></tr>'
+    ) or '<tr><td colspan="9">No candidate contour patterns detected.</td></tr>'
+
+    library_rows = "\n".join(
+        (
+            f"<tr><td><button class=\"seek\" data-seek=\"{float(match.get('candidate_start') or 0):.3f}\" data-end=\"{float(match.get('candidate_end') or 0):.3f}\">#{html.escape(str(match.get('candidate_rank')))}</button></td>"
+            f"<td>{html.escape(fmt_time(match.get('candidate_start')))} to {html.escape(fmt_time(match.get('candidate_end')))}</td>"
+            f"<td>{html.escape(str(match.get('candidate_label')))}</td>"
+            f"<td>{html.escape(str(match.get('label')))}</td>"
+            f"<td>{html.escape(str(match.get('score')))}</td>"
+            f"<td>{html.escape(str(match.get('example_id')))}</td></tr>"
+        )
+        for match in library_matches[:12]
+    ) or f'<tr><td colspan="6">{html.escape(str(library_info.get("status") or "No pattern library supplied."))}</td></tr>'
+
+    saved_exemplar = library_info.get("saved_exemplar") or {}
+    saved_line = ""
+    if saved_exemplar:
+        saved_line = (
+            f"<li><strong>Saved exemplar:</strong> {html.escape(str(saved_exemplar.get('label')))} "
+            f"from candidate #{html.escape(str(saved_exemplar.get('candidate_rank')))} "
+            f"({html.escape(fmt_time(saved_exemplar.get('start')))} to {html.escape(fmt_time(saved_exemplar.get('end')))}).</li>"
+        )
 
     summary_items = "\n".join(
         [
@@ -1227,6 +1569,9 @@ audio {{ filter: drop-shadow(0 8px 22px rgba(23, 44, 53, 0.12)); }}
 .pattern-head {{ display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--teal); font-weight: 800; }}
 .pattern-title {{ margin-top: 8px; color: var(--teal); font-weight: 800; }}
 .pattern-card p {{ margin: 6px 0 0; color: var(--muted); font-size: 13px; }}
+.match-line {{ color: var(--ink-soft) !important; }}
+.match-pill {{ display: inline-block; border-radius: 999px; padding: 2px 8px; background: var(--teal-soft); color: var(--teal); font-weight: 800; }}
+.score {{ color: var(--accent); font-weight: 800; }}
 .mini-contour {{ width: 100%; height: auto; margin-top: 8px; background: var(--surface-strong); border-radius: 12px; box-shadow: inset 0 0 0 1px rgba(23,44,53,0.07); }}
 svg {{ width: 100%; min-width: 0; height: auto; display: block; }}
 svg[data-track] {{ cursor: crosshair; }}
@@ -1280,9 +1625,17 @@ code {{ background: var(--teal-soft); padding: 2px 5px; border-radius: 5px; }}
 <div class="summary"><ul>
   <li><strong>Summary:</strong> {html.escape(pattern_analysis.get('summary', 'Pattern analysis unavailable.'))}</li>
   <li><strong>Known label:</strong> {html.escape(str(pattern_analysis.get('known_pattern_label') or 'none supplied'))}</li>
+  <li><strong>Library:</strong> {html.escape(str(library_info.get('status') or 'not_supplied'))} · {html.escape(str(library_info.get('pattern_count', 0)))} patterns · {html.escape(str(library_info.get('example_count', 0)))} examples · threshold {html.escape(str(library_info.get('match_threshold', 'n/a')))}</li>
+  {saved_line}
   <li><strong>Read this as:</strong> candidate contour shapes derived from pitch, loudness, and pause boundaries; not confirmed accent or phonology labels.</li>
 </ul></div>
 <div class="pattern-grid">{pattern_cards}</div>
+
+<h2>Pattern Library Matches</h2>
+<table>
+<thead><tr><th>Candidate</th><th>Span</th><th>Candidate Contour</th><th>Library Pattern</th><th>Score</th><th>Example</th></tr></thead>
+<tbody>{library_rows}</tbody>
+</table>
 
 <div class="cards">{cards}</div>
 
@@ -1336,7 +1689,7 @@ code {{ background: var(--teal-soft); padding: 2px 5px; border-radius: 5px; }}
 
 <h2>Pattern Candidates</h2>
 <table>
-<thead><tr><th>Family</th><th>Rank</th><th>Start</th><th>End</th><th>Contour</th><th>Pitch Range</th><th>Energy Range</th><th>Pitch Quality</th></tr></thead>
+<thead><tr><th>Family</th><th>Rank</th><th>Start</th><th>End</th><th>Contour</th><th>Pitch Range</th><th>Energy Range</th><th>Pitch Quality</th><th>Library Match</th></tr></thead>
 <tbody>{pattern_rows}</tbody>
 </table>
 
@@ -1617,6 +1970,9 @@ def analyze(args: argparse.Namespace) -> dict:
     wav_path = out_dir / "audio.wav"
     playback_path = out_dir / "audio.mp3"
     generated_at = dt.datetime.now(dt.UTC).isoformat()
+    pattern_library_path = Path(args.pattern_library).expanduser().resolve() if args.pattern_library else None
+    if args.save_pattern_label and pattern_library_path is None:
+        pattern_library_path = out_dir / "pattern-library.json"
     convert_to_wav(audio_path, wav_path)
     if not args.share_safe:
         playback_path = make_playback_audio(wav_path, playback_path)
@@ -1676,11 +2032,54 @@ def analyze(args: argparse.Namespace) -> dict:
         energy_p90,
         pitch_p90,
     )[:50]
+    source_audio = str(audio_path) if args.include_local_paths else audio_path.name
     pattern_analysis = build_pattern_analysis(duration, times, energy_db, pitch_arr, pauses)
     if args.pattern_label:
         pattern_analysis["known_pattern_label"] = args.pattern_label
     if args.pattern_notes:
         pattern_analysis["operator_notes"] = args.pattern_notes
+    if pattern_library_path:
+        library = load_pattern_library(pattern_library_path)
+        apply_pattern_library_matches(
+            pattern_analysis,
+            library,
+            pattern_library_path,
+            args.library_match_threshold,
+            bool(args.include_local_paths),
+        )
+        if args.save_pattern_label:
+            saved_exemplar = save_pattern_exemplar(
+                pattern_analysis,
+                library,
+                args.save_pattern_label,
+                args.save_pattern_id,
+                args.save_pattern_rank,
+                args.save_pattern_notes or args.pattern_notes,
+                source_audio,
+                generated_at,
+                args.speaker,
+                args.goal,
+            )
+            write_pattern_library(pattern_library_path, library)
+            library_info = pattern_library_info(
+                library,
+                pattern_library_path,
+                args.library_match_threshold,
+                bool(args.include_local_paths),
+                pattern_analysis.get("library", {}).get("status") or "saved_exemplar",
+            )
+            if library_info["status"] in ("loaded_no_examples", "loaded_no_matches"):
+                library_info["status"] = "saved_exemplar"
+            library_info["saved_exemplar"] = saved_exemplar
+            pattern_analysis["library"] = library_info
+    else:
+        pattern_analysis["library"] = {
+            "status": "not_supplied",
+            "pattern_count": 0,
+            "example_count": 0,
+            "match_threshold": round(float(args.library_match_threshold), 3),
+        }
+        pattern_analysis["library_matches"] = []
 
     waveform_step = max(1, math.ceil(len(samples) / 900))
     waveform_times = np.arange(0, len(samples), waveform_step) / sample_rate
@@ -1702,11 +2101,10 @@ def analyze(args: argparse.Namespace) -> dict:
     trend_metrics = build_trend_metrics(duration, metrics, pauses, acoustic_peaks, pitch_arr)
     progression = build_progression(duration, times, energy_db, pitch_arr, pauses, acoustic_peaks)
     synthesis = build_synthesis(metrics, trend_metrics, progression, acoustic_peaks)
-    source_audio = str(audio_path) if args.include_local_paths else audio_path.name
     outputs_dir = str(out_dir) if args.include_local_paths else out_dir.name
 
     data = {
-        "schema_version": "0.3",
+        "schema_version": "0.4",
         "generated_at": generated_at,
         "source_audio": source_audio,
         "input_audio": source_audio,
@@ -1766,6 +2164,8 @@ def analyze(args: argparse.Namespace) -> dict:
     }
     if args.include_local_paths:
         data["local_paths"] = {"input_audio": str(audio_path), "outputs_dir": str(out_dir)}
+    if pattern_library_path:
+        data["_runtime_pattern_library_path"] = str(pattern_library_path)
 
     (out_dir / "prosody.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
     write_report(out_dir, data, audio_path.name)
@@ -1787,13 +2187,19 @@ def main() -> int:
     parser.add_argument("--out-dir", help="Output directory")
     parser.add_argument("--min-pause", type=float, default=0.25, help="Minimum pause duration in seconds")
     parser.add_argument("--speaker", default=None, help="Stable speaker id for longitudinal comparison")
-    parser.add_argument("--operator", default="watson", help="Agent/operator running the analysis")
+    parser.add_argument("--operator", default="agent", help="Agent/operator running the analysis")
     parser.add_argument("--goal", default=None, help="Speech goal, such as clarity, pacing, warmth, authority, or storytelling")
     parser.add_argument("--memo-type", default="voice_memo", help="Recording type, such as voice_memo, narration, presentation, or coaching_take")
     parser.add_argument("--take-label", default=None, help="Human label for this take, such as baseline or retake_after_feedback")
     parser.add_argument("--pattern-label", default=None, help="Optional label when the clip is a known prosodic pattern exemplar")
     parser.add_argument("--pattern-notes", default=None, help="Optional operator notes about the known or suspected prosodic pattern")
     parser.add_argument("--patterns", action="store_true", help="Make pattern discovery intent explicit; pattern analysis is generated by default")
+    parser.add_argument("--pattern-library", default=None, help="Optional JSON pattern library for exemplar matching and saving approved patterns")
+    parser.add_argument("--library-match-threshold", type=float, default=0.62, help="Minimum correlation score for pattern-library matches")
+    parser.add_argument("--save-pattern-label", default=None, help="Save the selected candidate as an approved pattern exemplar with this analyst label")
+    parser.add_argument("--save-pattern-id", default=None, help="Optional stable id for --save-pattern-label; defaults to a slug of the label")
+    parser.add_argument("--save-pattern-rank", type=int, default=1, help="Candidate rank to save when --save-pattern-label is used")
+    parser.add_argument("--save-pattern-notes", default=None, help="Optional notes stored with the saved pattern exemplar")
     parser.add_argument("--recorded-at", default=None, help="ISO-8601 recording timestamp, if known")
     parser.add_argument("--history", help="Optional JSONL file to append compact trend records")
     parser.add_argument("--share-safe", action="store_true", help="Omit embedded audio and delete audio.wav from the output folder")
@@ -1812,6 +2218,8 @@ def main() -> int:
     print(f"html:   {runtime_outputs_dir}/report.html")
     if args.history:
         print(f"history: {Path(args.history).expanduser().resolve()}")
+    if data.get("_runtime_pattern_library_path"):
+        print(f"library: {data['_runtime_pattern_library_path']}")
     return 0
 
 

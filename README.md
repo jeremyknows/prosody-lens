@@ -12,6 +12,8 @@ for the bundled analyzer.
 - Measures pause structure, rough pitch movement, loudness/energy, possible
   acoustic peaks, and opening/middle/closing progression.
 - Surfaces candidate prosodic contour patterns and loose repeat families.
+- Saves analyst-approved pattern exemplars into a JSON library.
+- Matches future clips against approved pattern-library examples.
 - Generates `prosody.json`, `report.md`, and an interactive `report.html`.
 - Embeds browser-friendly MP3 playback in the HTML by default.
 - Supports repeated-run trend records with `--history`.
@@ -93,6 +95,24 @@ python3 scripts/prosody_analyze.py /absolute/path/to/pattern.ogg \
   --pattern-notes "why this clip matters"
 ```
 
+Build a reusable pattern library:
+
+```bash
+cp references/pattern-library-starter.json ./analysis/prosody/pattern-library.json
+
+python3 scripts/prosody_analyze.py /absolute/path/to/pattern.ogg \
+  --out-dir ./analysis/prosody/pattern-exemplar \
+  --pattern-library ./analysis/prosody/pattern-library.json \
+  --save-pattern-label "analyst-approved contour label" \
+  --save-pattern-rank 1 \
+  --save-pattern-notes "Accepted after listening to candidate #1"
+
+python3 scripts/prosody_analyze.py /absolute/path/to/new-clip.ogg \
+  --out-dir ./analysis/prosody/new-clip \
+  --pattern-library ./analysis/prosody/pattern-library.json \
+  --library-match-threshold 0.62
+```
+
 With a transcript:
 
 ```bash
@@ -116,6 +136,7 @@ python3 scripts/prosody_analyze.py /absolute/path/to/audio.ogg \
 | `prosody.json` | Structured metrics, synthesis, session metadata, pattern analysis, trend metrics, progression, and time series. |
 | `report.md` | Human-readable summary, listen-first moments, metrics, limitations, and pause map. |
 | `report.html` | Standalone interactive report with audio playback, charts, controls, and visual summary. |
+| `pattern-library.json` | Optional analyst-reviewed library when `--pattern-library` and `--save-pattern-label` are used. |
 | `audio.wav` | Normalized mono WAV used for analysis unless `--share-safe` is used. |
 | `audio.mp3` | Browser-friendly playback copy embedded in HTML when available. |
 | `prosody-history.jsonl` | Optional compact trend records when `--history` is supplied. |
@@ -130,6 +151,7 @@ Ask your agent:
 - "Analyze this voice memo for prosody and give me practical delivery feedback."
 - "Find candidate prosodic patterns in this clip."
 - "Visualize this known prosodic pattern exemplar."
+- "Save this as an approved pattern and use it to match future clips."
 - "Visualize the cadence and pauses in this narration take."
 - "Compare these two takes for clarity and pacing."
 - "Show progression over time across these recordings."
@@ -144,6 +166,21 @@ Prosody Lens includes explicit HTML/CSS direction for generated artifacts in
 `report.html`: warm cream paper, red accent, deep teal structure, tactile
 controls, click-to-seek charts, tabular metrics, mobile-safe wrapping, and
 reduced-motion support.
+
+## Pattern Library Workflow
+
+The library workflow is the serious path for speech-pattern work:
+
+1. Start from `references/pattern-library-starter.json`.
+2. Run a report on a known or suspected pattern clip.
+3. Listen to the top candidate cards in `report.html`.
+4. Save the accepted candidate with `--save-pattern-label`.
+5. Run future clips with the same `--pattern-library`.
+6. Review `Pattern Library Matches` in the HTML report and `prosody.json`.
+
+Seed patterns are vocabulary only. They become matchable only after approved
+examples are saved. This keeps the analyzer honest: it reports contour
+similarity to known examples, not unsupported accent diagnoses.
 
 ## Privacy And Sharing
 
@@ -160,8 +197,8 @@ data-handling tradeoff.
 - The bundled pitch tracker is a practical fallback, not a replacement for
   Praat/Parselmouth.
 - Pattern labels are descriptive contour sketches, not accent diagnoses.
-- Exemplar matching is label-preserving in v0.3; automatic matching against a
-  separate reference clip is a future higher-fidelity upgrade.
+- Pattern-library matching is correlation-style contour similarity against
+  approved examples; it is not a final phonological classifier.
 - Possible acoustic peaks are ranked places to listen first, not confirmed
   emphasized words.
 - Word-level emphasis and speaking rate need transcript/word alignment.
@@ -189,8 +226,13 @@ npx skills-ref validate .
 python3 scripts/prosody_analyze.py --help
 python3 scripts/prosody_analyze.py /absolute/path/to/test-audio.ogg \
   --out-dir /tmp/prosody-lens-smoke
+python3 scripts/prosody_analyze.py /absolute/path/to/test-audio.ogg \
+  --out-dir /tmp/prosody-lens-library-smoke \
+  --pattern-library /tmp/prosody-lens-pattern-library.json \
+  --save-pattern-label "smoke test contour"
 test -f /tmp/prosody-lens-smoke/report.html
 test -f /tmp/prosody-lens-smoke/prosody.json
+test -f /tmp/prosody-lens-pattern-library.json
 ```
 
 For UI changes, open `report.html` and verify audio playback, chart click-to-seek,

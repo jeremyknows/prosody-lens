@@ -36,6 +36,18 @@
       "prompt": "This clip is a known prosodic pattern exemplar; visualize it without renaming the pattern.",
       "expected_output": "Runs with --pattern-label, preserves the analyst-supplied label, surfaces contour candidates, and states fallback-method limitations.",
       "files": ["known-pattern.ogg"]
+    },
+    {
+      "id": 7,
+      "prompt": "Build a reusable pattern library from this approved clip, then use it to match a future clip.",
+      "expected_output": "Copies or creates a pattern library, runs with --pattern-library and --save-pattern-label, saves an approved exemplar, reruns a future clip against the same library, and reports library match scores without making diagnostic claims.",
+      "files": ["approved-pattern.ogg", "future-clip.ogg"]
+    },
+    {
+      "id": 8,
+      "prompt": "The analyst accepted candidate #2 as a rise-fall focus arc. Save that exact pattern and make the report show it clearly.",
+      "expected_output": "Runs with --pattern-library, --save-pattern-label, and --save-pattern-rank 2; preserves the analyst label; updates the library JSON; and shows the saved exemplar in report.md, report.html, and prosody.json.",
+      "files": ["hayley-reviewed-pattern.ogg"]
     }
   ]
 }

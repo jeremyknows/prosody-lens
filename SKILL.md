@@ -11,7 +11,7 @@ compatibility: >
   Forced Aligner, openSMILE, librosa, Plotly.
 metadata:
   author: jeremyknows
-  version: "0.3.0"
+  version: "0.4.0"
   category: Audio Analysis & Visualization
   status: EXPERIMENTAL
   last_improved: "2026-06-27"
@@ -69,6 +69,7 @@ as Groq Whisper are optional and require explicit approval for the specific file
 | Progression | "show progression over time" / `--progression` | Append/read trend records and compare stable metrics |
 | Pattern Discovery | "find prosodic patterns" / `--patterns` | Candidate contour patterns, repeat families, and pattern visuals |
 | Known Pattern | "visualize this known pattern" / `--pattern-label` | Label the exemplar, then show contour candidates and visual options |
+| Pattern Library | "build/match the pattern library" / `--pattern-library` | Save analyst-approved exemplars and match future clips against them |
 | Coach | "coach this delivery" / `--coach` | Analysis plus practical delivery suggestions |
 
 Default mode is Analyze + Visualize when an audio file is present.
@@ -99,6 +100,22 @@ python3 <skill-root>/scripts/prosody_analyze.py \
   --pattern-notes "label supplied by analyst"
 ```
 
+If the user wants to build or reuse a pattern library:
+
+```bash
+cp <skill-root>/references/pattern-library-starter.json ./analysis/prosody/pattern-library.json
+python3 <skill-root>/scripts/prosody_analyze.py \
+  /absolute/path/to/pattern-clip.ogg \
+  --out-dir ./analysis/prosody/pattern-exemplar \
+  --pattern-library ./analysis/prosody/pattern-library.json \
+  --save-pattern-label "analyst-approved contour label" \
+  --save-pattern-rank 1
+python3 <skill-root>/scripts/prosody_analyze.py \
+  /absolute/path/to/new-clip.ogg \
+  --out-dir ./analysis/prosody/new-clip \
+  --pattern-library ./analysis/prosody/pattern-library.json
+```
+
 If the user supplied a transcript:
 
 ```bash
@@ -111,8 +128,9 @@ python3 <skill-root>/scripts/prosody_analyze.py \
 3. **Read the outputs.**
    - `report.md`: delivery summary, listen-first moments, metrics, guardrails
    - `report.html`: standalone visual report with embedded audio by default
-   - `prosody.json`: schema v0.3 metrics, synthesis, session, trend metrics,
-     pattern analysis, progression segments, and time series
+   - `prosody.json`: schema v0.4 metrics, synthesis, session, trend metrics,
+     pattern analysis, pattern-library matches, progression segments, and time
+     series
    - `audio.wav`: normalized mono WAV used for analysis unless `--share-safe`
    - `audio.mp3`: browser-friendly playback copy embedded in `report.html`
      unless `--share-safe` is used
@@ -178,6 +196,9 @@ a generic data dump. The bundled `report.html` generator is the reference
 implementation for palette, spacing, controls, and responsive behavior.
 Read `references/pattern-analysis.md` when the request is about identifying,
 matching, or visualizing prosodic patterns.
+Read `references/pattern-library.md` when the request is about building a
+reusable pattern library, saving approved exemplars, or matching future clips to
+known examples.
 
 Prefer an interactive HTML report for v1:
 - audio player
@@ -192,6 +213,8 @@ Prefer an interactive HTML report for v1:
 - top "listen first" moments
 - progression snapshot across opening/middle/closing thirds
 - pattern lens with normalized contour mini-maps for candidate prosodic shapes
+- pattern library status, saved exemplar notes, and nearest approved-example
+  matches when `--pattern-library` is supplied
 - pattern candidate table with family IDs and click-to-seek controls
 - click-to-seek on waveform, energy, and pitch charts
 - synchronized playhead across charts
@@ -208,7 +231,7 @@ For repeated speech analysis, label each run with `--speaker`, `--goal`,
 `--memo-type`, and `--take-label`, and append compact trend records with
 `--history`.
 
-Stable trend metrics for v0.3:
+Stable trend metrics for v0.4:
 - pause ratio
 - pause count per minute
 - long pause count per minute
@@ -234,6 +257,10 @@ Read `references/pattern-analysis.md` when:
 - a known prosodic pattern exemplar is supplied
 - you need to explain the difference between waveform, pitch contour, intensity
   contour, rhythm, and pattern families
+Read `references/pattern-library.md` when:
+- the user wants to build a reusable pattern library
+- an analyst accepts/rejects/renames a candidate pattern
+- future clips should be matched to approved exemplars
 
 High-fidelity path:
 - Praat/Parselmouth for pitch, intensity, duration, spectrogram, jitter/shimmer

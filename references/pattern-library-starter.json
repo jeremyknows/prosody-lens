@@ -1,0 +1,79 @@
+{
+  "schema_version": "0.1",
+  "description": "Starter vocabulary for Prosody Lens pattern libraries. Seed patterns are not classifiers until analyst-approved examples are added.",
+  "created_for": "prosody-lens",
+  "patterns": [
+    {
+      "id": "rising-terminal-contour",
+      "label": "Rising terminal contour",
+      "status": "seed",
+      "basis": "ToBI-like final rise vocabulary; analyst review required",
+      "description": "A phrase-like span whose pitch contour rises toward the end.",
+      "expected_cues": ["positive pitch end-minus-start", "often phrase-final", "may have steady or tapering energy"],
+      "examples": []
+    },
+    {
+      "id": "falling-final-contour",
+      "label": "Falling final contour",
+      "status": "seed",
+      "basis": "ToBI-like final fall vocabulary; analyst review required",
+      "description": "A phrase-like span whose pitch contour falls toward the end.",
+      "expected_cues": ["negative pitch end-minus-start", "often phrase-final", "may pair with final lengthening"],
+      "examples": []
+    },
+    {
+      "id": "rise-fall-focus-arc",
+      "label": "Rise-fall focus arc",
+      "status": "seed",
+      "basis": "pitch-accent contour vocabulary; analyst review required",
+      "description": "A span that rises into a local high point and falls away.",
+      "expected_cues": ["mid-span pitch peak", "larger pitch range", "possible loudness peak near the high point"],
+      "examples": []
+    },
+    {
+      "id": "fall-rise-continuation-arc",
+      "label": "Fall-rise continuation arc",
+      "status": "seed",
+      "basis": "ToBI/IViE-style continuation vocabulary; analyst review required",
+      "description": "A span that dips and then rises, often useful to inspect for continuation or listing effects.",
+      "expected_cues": ["mid-span pitch valley", "pitch recovery near the end", "often not final-sounding"],
+      "examples": []
+    },
+    {
+      "id": "level-sustained-plateau",
+      "label": "Level sustained plateau",
+      "status": "seed",
+      "basis": "descriptive contour vocabulary; analyst review required",
+      "description": "A span with low pitch movement and relatively even loudness.",
+      "expected_cues": ["small pitch range", "small energy delta", "stable phrase delivery"],
+      "examples": []
+    },
+    {
+      "id": "energy-build-emphasis",
+      "label": "Energy build emphasis",
+      "status": "seed",
+      "basis": "intensity contour vocabulary; analyst review required",
+      "description": "A span whose loudness rises even when pitch evidence is weak or unavailable.",
+      "expected_cues": ["positive energy delta", "possible acoustic peak near end", "pitch may be noisy or absent"],
+      "examples": []
+    },
+    {
+      "id": "energy-taper-release",
+      "label": "Energy taper release",
+      "status": "seed",
+      "basis": "intensity contour vocabulary; analyst review required",
+      "description": "A span whose loudness tapers, useful for inspecting release or de-emphasis.",
+      "expected_cues": ["negative energy delta", "possible phrase ending", "pitch may be noisy or absent"],
+      "examples": []
+    },
+    {
+      "id": "wavy-expressive-contour",
+      "label": "Wavy expressive contour",
+      "status": "seed",
+      "basis": "descriptive contour vocabulary; analyst review required",
+      "description": "A span with multiple pitch direction changes and high contour movement.",
+      "expected_cues": ["larger pitch range", "more than one direction change", "requires listening before naming"],
+      "examples": []
+    }
+  ]
+}

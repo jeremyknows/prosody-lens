@@ -89,6 +89,8 @@ Recommended JSON/report fields:
 - opening/middle/closing progression segments
 - candidate prosodic contour patterns
 - loose repeated contour families
+- optional pattern-library status, saved exemplar metadata, and approved-example
+  match scores
 
 ## Visualization Design
 
@@ -103,13 +105,28 @@ Recommended v1 visual report:
 - "listen first" acoustic peak moments
 - progression snapshot
 - pattern contour cards and motif table
+- pattern library match table when `--pattern-library` is supplied
 
 Recommended v2:
 - word-level transcript lane
 - hover over a word to see pitch/intensity/duration
 - compare two takes with aligned phrase timing
-- exemplar matching with dynamic time warping
+- stronger exemplar matching with dynamic time warping
 - recurrence/heatmap view for repeated contour shapes
+
+## Pattern Library
+
+The bundled analyzer supports a portable JSON pattern library. Use it before
+training any model:
+
+- seed vocabulary lives in `references/pattern-library-starter.json`
+- analyst-approved examples are saved with `--save-pattern-label`
+- future clips are matched with `--pattern-library`
+- match scores compare normalized pitch and energy contour signatures
+
+This gives the project a reviewable dataset: which labels were accepted, where
+in the audio they occurred, what contour was saved, and which future candidates
+resembled them.
 
 Avoid v1 animation unless timing is otherwise hard to understand.
 

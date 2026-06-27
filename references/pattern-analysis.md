@@ -18,7 +18,7 @@ trace. Pattern analysis should derive inspectable contours from it:
 - duration and rhythm of phrase-like spans
 - repeated contour families within a clip
 
-## Two Workflows
+## Three Workflows
 
 ### 1. Known Pattern Exemplar
 
@@ -68,6 +68,55 @@ Do not say:
 - "this proves Y emotion"
 - "this is a phonological diagnosis"
 
+### 3. Pattern Library Matching
+
+Use when the project needs progression over time or reusable speech-pattern
+knowledge.
+
+Start a local library:
+
+```bash
+cp references/pattern-library-starter.json ./analysis/prosody/pattern-library.json
+```
+
+Save an analyst-approved candidate:
+
+```bash
+python3 scripts/prosody_analyze.py /absolute/path/to/pattern.ogg \
+  --out-dir ./analysis/prosody/pattern-exemplar \
+  --pattern-library ./analysis/prosody/pattern-library.json \
+  --save-pattern-label "analyst-approved contour label" \
+  --save-pattern-rank 1
+```
+
+Match a future clip:
+
+```bash
+python3 scripts/prosody_analyze.py /absolute/path/to/new-clip.ogg \
+  --out-dir ./analysis/prosody/new-clip \
+  --pattern-library ./analysis/prosody/pattern-library.json
+```
+
+The report should show:
+
+- `pattern_analysis.library.status`
+- `pattern_analysis.library_matches`
+- candidate-level `library_matches`
+- an HTML "Pattern Library Matches" table
+
+Use this language:
+
+- "nearest approved exemplar"
+- "shape similarity"
+- "above threshold"
+- "needs analyst listening/review"
+
+Do not say:
+
+- "trained model"
+- "diagnosed accent feature"
+- "confirmed pattern" unless the analyst confirmed it
+
 ## Visualization Options
 
 Show more than the waveform. Good pattern artifacts can include:
@@ -78,14 +127,16 @@ Show more than the waveform. Good pattern artifacts can include:
    label, pitch range, and energy range.
 3. **Timeline Overlay** — candidate spans over the full audio timeline, so the
    analyst can see where patterns cluster.
-4. **Future Recurrence Matrix** — a heatmap of similar contour windows. Useful
+4. **Pattern Library Match Table** — candidate spans ranked against approved
+   exemplars, with score, label, and click-to-seek.
+5. **Future Recurrence Matrix** — a heatmap of similar contour windows. Useful
    once the project needs stronger repeated-pattern discovery.
-5. **Future Aligned Transcript Lane** — words/phonemes under the contour. This
+6. **Future Aligned Transcript Lane** — words/phonemes under the contour. This
    needs WhisperX or Montreal Forced Aligner.
 
 ## Current Local Method
 
-The dependency-light v0.3 method:
+The dependency-light v0.4 method:
 
 1. Convert audio to mono WAV.
 2. Estimate RMS energy and rough pitch.
@@ -102,6 +153,8 @@ The dependency-light v0.3 method:
    - energy build/taper
    - level/subtle contour
 8. Group repeated candidates into loose contour families.
+9. Optionally compare candidate signatures to approved examples in a JSON
+   pattern library.
 
 This is intentionally conservative. It is a discovery and visualization aid, not
 a final speech-science classifier.
@@ -115,3 +168,4 @@ For serious speech/accent analysis:
 - Dynamic time warping for exemplar-vs-clip matching.
 - Recurrence plots or motif clustering for repeated contour discovery.
 - Analyst review loop where the expert accepts/rejects candidate families.
+- A small review UI for saving labels without CLI flags.
