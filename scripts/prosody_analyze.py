@@ -420,6 +420,48 @@ def vector_similarity(a: list[float], b: list[float]) -> float:
     return round(max(-1.0, min(1.0, corr)), 3)
 
 
+def interpolate_to_targets(source_times: np.ndarray, source_values: np.ndarray, target_times: np.ndarray) -> np.ndarray:
+    result = np.full(len(target_times), np.nan, dtype=np.float64)
+    finite = np.isfinite(source_times) & np.isfinite(source_values)
+    if np.sum(finite) < 2:
+        return result
+    return np.interp(target_times, source_times[finite], source_values[finite], left=np.nan, right=np.nan)
+
+
+def extract_praat_acoustics(
+    wav_path: Path,
+    target_times: np.ndarray,
+    pitch_floor_hz: float,
+    pitch_ceiling_hz: float,
+) -> dict | None:
+    try:
+        import parselmouth  # type: ignore
+    except ImportError:
+        return None
+
+    sound = parselmouth.Sound(str(wav_path))
+    pitch = sound.to_pitch(time_step=0.01, pitch_floor=pitch_floor_hz, pitch_ceiling=pitch_ceiling_hz)
+    pitch_values = np.array(pitch.selected_array["frequency"], dtype=np.float64)
+    pitch_values[pitch_values <= 0] = np.nan
+    pitch_arr = interpolate_to_targets(np.array(pitch.xs(), dtype=np.float64), pitch_values, target_times)
+
+    intensity_arr = None
+    try:
+        intensity = sound.to_intensity(time_step=0.01, minimum_pitch=pitch_floor_hz)
+        intensity_values = np.array(intensity.values[0], dtype=np.float64)
+        intensity_arr = interpolate_to_targets(np.array(intensity.xs(), dtype=np.float64), intensity_values, target_times)
+    except Exception:
+        intensity_arr = None
+
+    if np.sum(np.isfinite(pitch_arr)) < 3:
+        return None
+    return {
+        "pitch_hz": pitch_arr,
+        "intensity_db": intensity_arr,
+        "version": getattr(parselmouth, "__version__", "unknown"),
+    }
+
+
 def slugify_label(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
     return slug or "pattern"
@@ -446,8 +488,24 @@ def pattern_signature_from_points(pitch_points: list, energy_points: list) -> li
     return [round(float(v), 3) for v in normalize_vector(combined)]
 
 
+def pattern_sequence_from_points(pitch_points: list, energy_points: list) -> list[list[float]]:
+    length = min(len(pitch_points), len(energy_points))
+    if length < 2:
+        return []
+    pitch = normalize_vector(np.array([numeric_point(item) for item in pitch_points[:length]], dtype=np.float64))
+    energy = normalize_vector(np.array([numeric_point(item) for item in energy_points[:length]], dtype=np.float64))
+    return [[round(float(pitch[i]), 3), round(float(energy[i]), 3)] for i in range(length)]
+
+
 def pattern_signature_from_candidate(candidate: dict) -> list[float]:
     return pattern_signature_from_points(
+        candidate.get("pitch_points_st") or [],
+        candidate.get("energy_points_z") or [],
+    )
+
+
+def pattern_sequence_from_candidate(candidate: dict) -> list[list[float]]:
+    return pattern_sequence_from_points(
         candidate.get("pitch_points_st") or [],
         candidate.get("energy_points_z") or [],
     )
@@ -461,6 +519,57 @@ def pattern_signature_from_example(example: dict) -> list[float]:
         example.get("pitch_points_st") or [],
         example.get("energy_points_z") or [],
     )
+
+
+def pattern_sequence_from_example(example: dict) -> list[list[float]]:
+    sequence = example.get("sequence")
+    if isinstance(sequence, list) and sequence:
+        clean = []
+        for point in sequence:
+            if isinstance(point, (list, tuple)) and len(point) >= 2:
+                clean.append([numeric_point(point[0]), numeric_point(point[1])])
+        if clean:
+            return clean
+    return pattern_sequence_from_points(
+        example.get("pitch_points_st") or [],
+        example.get("energy_points_z") or [],
+    )
+
+
+def dtw_similarity(a: list[list[float]], b: list[list[float]]) -> float:
+    if not a or not b:
+        return 0.0
+    av = np.array(a, dtype=np.float64)
+    bv = np.array(b, dtype=np.float64)
+    if av.ndim != 2 or bv.ndim != 2 or av.shape[1] != bv.shape[1]:
+        return 0.0
+    rows, cols = av.shape[0], bv.shape[0]
+    costs = np.full((rows + 1, cols + 1), np.inf, dtype=np.float64)
+    costs[0, 0] = 0.0
+    for i in range(1, rows + 1):
+        for j in range(1, cols + 1):
+            distance = float(np.linalg.norm(av[i - 1] - bv[j - 1]))
+            costs[i, j] = distance + min(costs[i - 1, j], costs[i, j - 1], costs[i - 1, j - 1])
+    normalized_distance = float(costs[rows, cols] / max(rows, cols))
+    if not math.isfinite(normalized_distance):
+        return 0.0
+    return round(1.0 / (1.0 + normalized_distance), 3)
+
+
+def match_score(candidate_signature: list[float], candidate_sequence: list[list[float]], example: dict, method: str) -> dict:
+    correlation_score = vector_similarity(candidate_signature, example["signature"])
+    dtw_score = dtw_similarity(candidate_sequence, example.get("sequence") or [])
+    if method == "correlation":
+        score = correlation_score
+    elif method == "dtw":
+        score = dtw_score
+    else:
+        score = max(correlation_score, dtw_score)
+    return {
+        "score": round(float(score), 3),
+        "correlation_score": correlation_score,
+        "dtw_score": dtw_score,
+    }
 
 
 def blank_pattern_library() -> dict:
@@ -495,7 +604,7 @@ def library_path_label(library_path: Path, include_local_paths: bool) -> str:
     return str(library_path) if include_local_paths else library_path.name
 
 
-def pattern_library_info(library: dict, library_path: Path, threshold: float, include_local_paths: bool, status: str) -> dict:
+def pattern_library_info(library: dict, library_path: Path, threshold: float, match_method: str, include_local_paths: bool, status: str) -> dict:
     pattern_count, example_count = pattern_library_counts(library)
     return {
         "status": status,
@@ -504,6 +613,7 @@ def pattern_library_info(library: dict, library_path: Path, threshold: float, in
         "pattern_count": pattern_count,
         "example_count": example_count,
         "match_threshold": round(float(threshold), 3),
+        "match_method": match_method,
     }
 
 
@@ -519,6 +629,7 @@ def flatten_library_examples(library: dict) -> list[dict]:
             if not isinstance(example, dict):
                 continue
             signature = pattern_signature_from_example(example)
+            sequence = pattern_sequence_from_example(example)
             if not signature:
                 continue
             rows.append(
@@ -529,6 +640,7 @@ def flatten_library_examples(library: dict) -> list[dict]:
                     "example_id": str(example.get("example_id") or "example"),
                     "source_audio": example.get("source_audio"),
                     "signature": signature,
+                    "sequence": sequence,
                 }
             )
     return rows
@@ -539,6 +651,7 @@ def apply_pattern_library_matches(
     library: dict,
     library_path: Path,
     threshold: float,
+    match_method: str,
     include_local_paths: bool,
 ) -> None:
     examples = flatten_library_examples(library)
@@ -547,6 +660,7 @@ def apply_pattern_library_matches(
             library,
             library_path,
             threshold,
+            match_method,
             include_local_paths,
             "loaded_no_examples",
         )
@@ -556,10 +670,11 @@ def apply_pattern_library_matches(
     all_matches: list[dict] = []
     for candidate in pattern_analysis.get("candidates") or []:
         candidate_signature = pattern_signature_from_candidate(candidate)
+        candidate_sequence = pattern_sequence_from_candidate(candidate)
         matches = []
         for example in examples:
-            score = vector_similarity(candidate_signature, example["signature"])
-            if score < threshold:
+            scores = match_score(candidate_signature, candidate_sequence, example, match_method)
+            if scores["score"] < threshold:
                 continue
             matches.append(
                 {
@@ -568,7 +683,10 @@ def apply_pattern_library_matches(
                     "status": example["status"],
                     "example_id": example["example_id"],
                     "source_audio": example.get("source_audio"),
-                    "score": score,
+                    "score": scores["score"],
+                    "correlation_score": scores["correlation_score"],
+                    "dtw_score": scores["dtw_score"],
+                    "match_method": match_method,
                 }
             )
         matches = sorted(matches, key=lambda item: float(item["score"]), reverse=True)[:3]
@@ -588,7 +706,7 @@ def apply_pattern_library_matches(
         all_matches.append(best)
 
     status = "matched" if all_matches else "loaded_no_matches"
-    pattern_analysis["library"] = pattern_library_info(library, library_path, threshold, include_local_paths, status)
+    pattern_analysis["library"] = pattern_library_info(library, library_path, threshold, match_method, include_local_paths, status)
     pattern_analysis["library_matches"] = sorted(all_matches, key=lambda item: float(item["score"]), reverse=True)[:12]
 
 
@@ -646,6 +764,7 @@ def save_pattern_exemplar(
         "pitch_points_st": selected.get("pitch_points_st") or [],
         "energy_points_z": selected.get("energy_points_z") or [],
         "signature": pattern_signature_from_candidate(selected),
+        "sequence": pattern_sequence_from_candidate(selected),
         "speaker_id": speaker_id,
         "goal": goal,
         "notes": notes or "",
@@ -865,7 +984,7 @@ def build_pattern_analysis(
     for family in families:
         family.pop("prototype_signature", None)
 
-    summary = "No repeatable contour candidates were detected by the fallback analyzer."
+    summary = "No repeatable contour candidates were detected by the analyzer."
     if public_candidates:
         top = public_candidates[0]
         repeat_count = sum(1 for family in families if int(family["count"]) > 1)
@@ -886,7 +1005,7 @@ def build_pattern_analysis(
         "limitations": [
             "Pattern labels are descriptive contour sketches, not phonological diagnoses.",
             "Accent interpretation needs expert review and usually word/phoneme alignment.",
-            "Fallback pitch tracking can miss noisy, creaky, very high, or multi-speaker regions.",
+            "Pitch tracking can miss noisy, creaky, very high, or multi-speaker regions.",
         ],
     }
 
@@ -1054,7 +1173,7 @@ def build_synthesis(metrics: dict, trend_metrics: dict, progression: dict, peaks
         "listen_first": listen,
         "recommended_experiment": "Record one comparable retake with the same goal, then compare pause ratio, rough pitch variety, and top acoustic peaks.",
         "unavailable_without_alignment": unavailable,
-        "method_note": "Local fallback analyzer only; descriptive, not clinical or diagnostic.",
+        "method_note": "Local acoustic analyzer only; descriptive, not clinical or diagnostic.",
     }
 
 
@@ -1157,6 +1276,7 @@ def pattern_mini_svg(candidate: dict, width: int = 220, height: int = 86) -> str
 def write_report(out_dir: Path, data: dict, audio_name: str) -> None:
     metrics = data["metrics"]
     synthesis = data["synthesis"]
+    analyzer = data.get("analyzer", {})
     peaks = data.get("acoustic_peak_candidates", data.get("emphasis_candidates", []))
     pattern_analysis = data.get("pattern_analysis", {})
     patterns = pattern_analysis.get("candidates", [])
@@ -1185,7 +1305,7 @@ def write_report(out_dir: Path, data: dict, audio_name: str) -> None:
         for item in synthesis["listen_first"]:
             lines.append(f"- {fmt_time(item['start'])} to {fmt_time(item['end'])}: {item['label']} ({item['why']})")
     else:
-        lines.append("- No strong acoustic peaks detected by the fallback analyzer.")
+        lines.append("- No strong acoustic peaks detected by the analyzer.")
 
     lines.extend(
         [
@@ -1203,7 +1323,7 @@ def write_report(out_dir: Path, data: dict, audio_name: str) -> None:
         lines.append(
             f"- Pattern library: {library_info.get('status', 'unknown')} "
             f"({library_info.get('pattern_count', 0)} patterns, {library_info.get('example_count', 0)} examples, "
-            f"threshold {library_info.get('match_threshold', 'n/a')})."
+            f"method {library_info.get('match_method', 'n/a')}, threshold {library_info.get('match_threshold', 'n/a')})."
         )
     if library_info.get("saved_exemplar"):
         saved = library_info["saved_exemplar"]
@@ -1217,14 +1337,14 @@ def write_report(out_dir: Path, data: dict, audio_name: str) -> None:
             lines.append(
                 f"  - candidate #{match.get('candidate_rank')} {fmt_time(match.get('candidate_start'))} to "
                 f"{fmt_time(match.get('candidate_end'))}: {match.get('label')} "
-                f"(score {match.get('score')}, example `{match.get('example_id')}`)"
+                f"(score {match.get('score')}, DTW {match.get('dtw_score')}, correlation {match.get('correlation_score')}, example `{match.get('example_id')}`)"
             )
     if patterns:
         for item in patterns[:10]:
             match = (item.get("library_matches") or [{}])[0]
             match_text = ""
             if match:
-                match_text = f", library match {match.get('label')} score {match.get('score')}"
+                match_text = f", library match {match.get('label')} score {match.get('score')} via {match.get('match_method', 'n/a')}"
             lines.append(
                 f"- {item['family_id']} #{item['rank']} {fmt_time(item['start'])} to {fmt_time(item['end'])}: "
                 f"{item['label']} (score {item['score']}, pitch range {fmt(item.get('pitch_range_st'), ' st')}, "
@@ -1298,7 +1418,7 @@ def write_report(out_dir: Path, data: dict, audio_name: str) -> None:
         for item in peaks[:12]:
             lines.append(f"- #{item['rank']} {fmt_time(item['start'])} to {fmt_time(item['end'])}: {item['reason']} (score {item['score']})")
     else:
-        lines.append("- No strong acoustic peaks detected by the fallback analyzer.")
+        lines.append("- No strong acoustic peaks detected by the analyzer.")
 
     lines.extend(
         [
@@ -1318,7 +1438,7 @@ def write_report(out_dir: Path, data: dict, audio_name: str) -> None:
             "",
             "## Limitations",
             "",
-            "- Fallback pitch tracking uses autocorrelation, not Praat.",
+            f"- Pitch method: {analyzer.get('pitch_method', 'autocorrelation fallback')}; intensity method: {analyzer.get('intensity_method', 'rms fallback')}.",
             "- Acoustic peaks are time ranges, not confirmed emphasized words.",
             "- Without word-level alignment, speaking rate and word-level emphasis are unavailable.",
             "- Noise, room echo, multiple speakers, and music can distort metrics.",
@@ -1345,6 +1465,9 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
     pauses = data["pauses"]
     metrics = data["metrics"]
     synthesis = data["synthesis"]
+    analyzer = data.get("analyzer", {})
+    pitch_method_label = str(analyzer.get("pitch_method") or "autocorrelation fallback")
+    intensity_method_label = str(analyzer.get("intensity_method") or "rms fallback")
     peaks = data.get("acoustic_peak_candidates", data.get("emphasis_candidates", []))
     pattern_analysis = data.get("pattern_analysis", {})
     patterns = pattern_analysis.get("candidates", [])
@@ -1359,7 +1482,7 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
         match = top_library_match(item)
         if not match:
             return "none"
-        return f"{html.escape(str(match.get('label')))} <span class=\"score\">{html.escape(str(match.get('score')))}</span>"
+        return f"{html.escape(str(match.get('label')))} <span class=\"score\">{html.escape(str(match.get('score')))}</span> <span class=\"caption\">{html.escape(str(match.get('match_method', 'n/a')))}</span>"
 
     def pattern_card_html(item: dict) -> str:
         match = top_library_match(item)
@@ -1368,7 +1491,7 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
             match_html = (
                 f"<p class=\"match-line\">Library match: "
                 f"<span class=\"match-pill\">{html.escape(str(match.get('label')))}</span> "
-                f"score {html.escape(str(match.get('score')))}</p>"
+                f"score {html.escape(str(match.get('score')))} via {html.escape(str(match.get('match_method', 'n/a')))}</p>"
             )
         return (
             f"<article class=\"pattern-card\">"
@@ -1405,7 +1528,7 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
     listen_items = "\n".join(
         f"<li><button class=\"seek\" data-seek=\"{float(item['start']):.3f}\" data-end=\"{float(item['end']):.3f}\">{html.escape(fmt_time(item['start']))}</button> {html.escape(item['label'])}: {html.escape(item['why'])}</li>"
         for item in synthesis["listen_first"]
-    ) or "<li>No strong acoustic peaks detected by the fallback analyzer.</li>"
+    ) or "<li>No strong acoustic peaks detected by the analyzer.</li>"
 
     pattern_cards = "\n".join(pattern_card_html(item) for item in patterns[:8]) or '<div class="notice">No candidate contour patterns detected.</div>'
 
@@ -1430,7 +1553,7 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
             f"<td>{html.escape(fmt_time(match.get('candidate_start')))} to {html.escape(fmt_time(match.get('candidate_end')))}</td>"
             f"<td>{html.escape(str(match.get('candidate_label')))}</td>"
             f"<td>{html.escape(str(match.get('label')))}</td>"
-            f"<td>{html.escape(str(match.get('score')))}</td>"
+            f"<td>{html.escape(str(match.get('score')))}<br><span class=\"caption\">DTW {html.escape(str(match.get('dtw_score')))} · corr {html.escape(str(match.get('correlation_score')))}</span></td>"
             f"<td>{html.escape(str(match.get('example_id')))}</td></tr>"
         )
         for match in library_matches[:12]
@@ -1506,6 +1629,11 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
     else:
         audio_block = '<div class="notice">Share-safe report: audio player and raw voice audio omitted.</div>'
         controls_block = ""
+
+    method_note = (
+        f"Pitch: {html.escape(pitch_method_label)}. Intensity: {html.escape(intensity_method_label)}. "
+        "Descriptive only."
+    )
 
     doc = f"""<!doctype html>
 <html lang="en">
@@ -1605,7 +1733,7 @@ code {{ background: var(--teal-soft); padding: 2px 5px; border-radius: 5px; }}
   <div>
     <p class="eyebrow">Voice Delivery Map</p>
     <h1>Prosody Lens</h1>
-    <div class="sub">Generated {html.escape(generated_label)}. Fallback analyzer, descriptive only.</div>
+    <div class="sub">Generated {html.escape(generated_label)}. {method_note}</div>
   </div>
   <div class="hero-stat">
     <div class="label">Duration</div>
@@ -1625,7 +1753,7 @@ code {{ background: var(--teal-soft); padding: 2px 5px; border-radius: 5px; }}
 <div class="summary"><ul>
   <li><strong>Summary:</strong> {html.escape(pattern_analysis.get('summary', 'Pattern analysis unavailable.'))}</li>
   <li><strong>Known label:</strong> {html.escape(str(pattern_analysis.get('known_pattern_label') or 'none supplied'))}</li>
-  <li><strong>Library:</strong> {html.escape(str(library_info.get('status') or 'not_supplied'))} · {html.escape(str(library_info.get('pattern_count', 0)))} patterns · {html.escape(str(library_info.get('example_count', 0)))} examples · threshold {html.escape(str(library_info.get('match_threshold', 'n/a')))}</li>
+  <li><strong>Library:</strong> {html.escape(str(library_info.get('status') or 'not_supplied'))} · {html.escape(str(library_info.get('pattern_count', 0)))} patterns · {html.escape(str(library_info.get('example_count', 0)))} examples · method {html.escape(str(library_info.get('match_method', 'n/a')))} · threshold {html.escape(str(library_info.get('match_threshold', 'n/a')))}</li>
   {saved_line}
   <li><strong>Read this as:</strong> candidate contour shapes derived from pitch, loudness, and pause boundaries; not confirmed accent or phonology labels.</li>
 </ul></div>
@@ -1694,9 +1822,9 @@ code {{ background: var(--teal-soft); padding: 2px 5px; border-radius: 5px; }}
 </table>
 
 <h2>Limitations</h2>
-<p>This report uses a dependency-light fallback analyzer. Use Praat/Parselmouth
-and word-level alignment for higher-fidelity phonetic analysis. Acoustic peaks are
-not confirmed emphasized words. Do not treat this as clinical or diagnostic output.</p>
+<p>Pitch method: {html.escape(pitch_method_label)}. Intensity method: {html.escape(intensity_method_label)}.
+Use word-level alignment for stronger phonetic analysis. Acoustic peaks are not
+confirmed emphasized words. Do not treat this as clinical or diagnostic output.</p>
 </main>
 <div id="chartTip" class="chart-tip" hidden></div>
 <script>
@@ -1982,6 +2110,31 @@ def analyze(args: argparse.Namespace) -> dict:
     times, frames = frame_audio(samples, sample_rate, frame_ms=30.0, hop_ms=10.0)
     hop_s = 0.010
     energy_db = rms_db(frames)
+    acoustic_meta = {
+        "pitch_method": "autocorrelation fallback",
+        "intensity_method": "rms fallback",
+        "praat_parselmouth_version": None,
+        "praat_requested": args.pitch_method in ("auto", "praat"),
+        "praat_used": False,
+        "pitch_floor_hz": args.pitch_floor,
+        "pitch_ceiling_hz": args.pitch_ceiling,
+    }
+
+    pitch_arr: np.ndarray | None = None
+    if args.pitch_method in ("auto", "praat"):
+        praat = extract_praat_acoustics(wav_path, times, args.pitch_floor, args.pitch_ceiling)
+        if praat is not None:
+            pitch_arr = praat["pitch_hz"]
+            praat_intensity = praat.get("intensity_db")
+            if isinstance(praat_intensity, np.ndarray) and np.sum(np.isfinite(praat_intensity)) >= 3:
+                energy_db = praat_intensity
+                acoustic_meta["intensity_method"] = "praat-parselmouth"
+            acoustic_meta["pitch_method"] = "praat-parselmouth"
+            acoustic_meta["praat_parselmouth_version"] = praat.get("version")
+            acoustic_meta["praat_used"] = True
+        elif args.pitch_method == "praat":
+            raise RuntimeError("Praat/Parselmouth requested but unavailable or unable to extract usable pitch. Install optional dependency with `python3 -m pip install praat-parselmouth` in a virtual environment.")
+
     energy_floor = safe_percentile(energy_db, 15)
     energy_med = safe_percentile(energy_db, 50)
     if energy_floor is None or energy_med is None:
@@ -1991,13 +2144,12 @@ def analyze(args: argparse.Namespace) -> dict:
     silence_mask = energy_db < silence_threshold
     pauses = contiguous_regions(silence_mask, times, hop_s, min_duration_s=args.min_pause)
 
-    pitches: list[float] = []
-    pitch_quality: list[float] = []
-    for frame in frames:
-        pitch, quality = estimate_pitch_hz(frame, sample_rate)
-        pitches.append(float("nan") if pitch is None else pitch)
-        pitch_quality.append(quality)
-    pitch_arr = np.array(pitches, dtype=np.float64)
+    if pitch_arr is None:
+        pitches: list[float] = []
+        for frame in frames:
+            pitch, _quality = estimate_pitch_hz(frame, sample_rate)
+            pitches.append(float("nan") if pitch is None else pitch)
+        pitch_arr = np.array(pitches, dtype=np.float64)
     pitch_summary = summarize(pitch_arr)
 
     finite_pitch = pitch_arr[np.isfinite(pitch_arr)]
@@ -2045,6 +2197,7 @@ def analyze(args: argparse.Namespace) -> dict:
             library,
             pattern_library_path,
             args.library_match_threshold,
+            args.library_match_method,
             bool(args.include_local_paths),
         )
         if args.save_pattern_label:
@@ -2065,6 +2218,7 @@ def analyze(args: argparse.Namespace) -> dict:
                 library,
                 pattern_library_path,
                 args.library_match_threshold,
+                args.library_match_method,
                 bool(args.include_local_paths),
                 pattern_analysis.get("library", {}).get("status") or "saved_exemplar",
             )
@@ -2078,6 +2232,7 @@ def analyze(args: argparse.Namespace) -> dict:
             "pattern_count": 0,
             "example_count": 0,
             "match_threshold": round(float(args.library_match_threshold), 3),
+            "match_method": args.library_match_method,
         }
         pattern_analysis["library_matches"] = []
 
@@ -2101,10 +2256,16 @@ def analyze(args: argparse.Namespace) -> dict:
     trend_metrics = build_trend_metrics(duration, metrics, pauses, acoustic_peaks, pitch_arr)
     progression = build_progression(duration, times, energy_db, pitch_arr, pauses, acoustic_peaks)
     synthesis = build_synthesis(metrics, trend_metrics, progression, acoustic_peaks)
+    if acoustic_meta["pitch_method"] == "praat-parselmouth":
+        synthesis["vocal_variety"] = synthesis["vocal_variety"].replace(
+            "; treat pitch numbers as rough fallback estimates.",
+            "; extracted with Praat/Parselmouth, but still treat numbers as acoustic estimates.",
+        )
+        synthesis["method_note"] = "Praat/Parselmouth pitch extraction with local descriptive analysis; not clinical or diagnostic."
     outputs_dir = str(out_dir) if args.include_local_paths else out_dir.name
 
     data = {
-        "schema_version": "0.4",
+        "schema_version": "0.5",
         "generated_at": generated_at,
         "source_audio": source_audio,
         "input_audio": source_audio,
@@ -2124,12 +2285,19 @@ def analyze(args: argparse.Namespace) -> dict:
             "duration_bucket": duration_bucket(duration),
             "same_script": None,
             "audio_quality_flag": "review_needed" if (intensity_summary.get("std") or 0) > 30 else "ok",
-            "pitch_method": "autocorrelation fallback",
+            "pitch_method": acoustic_meta["pitch_method"],
             "pause_threshold_seconds": args.min_pause,
         },
         "analyzer": {
             "name": "prosody-lens-basic",
-            "pitch_method": "autocorrelation fallback",
+            "pitch_method": acoustic_meta["pitch_method"],
+            "intensity_method": acoustic_meta["intensity_method"],
+            "praat_parselmouth_version": acoustic_meta["praat_parselmouth_version"],
+            "praat_requested": acoustic_meta["praat_requested"],
+            "praat_used": acoustic_meta["praat_used"],
+            "pitch_floor_hz": acoustic_meta["pitch_floor_hz"],
+            "pitch_ceiling_hz": acoustic_meta["pitch_ceiling_hz"],
+            "library_match_method": args.library_match_method,
             "sample_rate": sample_rate,
             "min_pause_seconds": args.min_pause,
         },
@@ -2155,7 +2323,7 @@ def analyze(args: argparse.Namespace) -> dict:
         },
         "transcript": transcript,
         "limitations": [
-            "Fallback pitch tracking uses autocorrelation, not Praat.",
+            "Praat/Parselmouth pitch extraction is used only when installed and selected; otherwise the fallback uses autocorrelation.",
             "Acoustic peaks are not confirmed emphasized words without alignment.",
             "No speaking-rate or word-level emphasis without transcript/alignment.",
             "Multiple speakers, music, noise, or echo can distort results.",
@@ -2191,11 +2359,15 @@ def main() -> int:
     parser.add_argument("--goal", default=None, help="Speech goal, such as clarity, pacing, warmth, authority, or storytelling")
     parser.add_argument("--memo-type", default="voice_memo", help="Recording type, such as voice_memo, narration, presentation, or coaching_take")
     parser.add_argument("--take-label", default=None, help="Human label for this take, such as baseline or retake_after_feedback")
+    parser.add_argument("--pitch-method", choices=["auto", "fallback", "praat"], default="auto", help="Pitch/intensity method: auto uses Praat/Parselmouth when installed, otherwise fallback")
+    parser.add_argument("--pitch-floor", type=float, default=75.0, help="Minimum pitch in Hz for Praat/Parselmouth extraction")
+    parser.add_argument("--pitch-ceiling", type=float, default=400.0, help="Maximum pitch in Hz for Praat/Parselmouth extraction")
     parser.add_argument("--pattern-label", default=None, help="Optional label when the clip is a known prosodic pattern exemplar")
     parser.add_argument("--pattern-notes", default=None, help="Optional operator notes about the known or suspected prosodic pattern")
     parser.add_argument("--patterns", action="store_true", help="Make pattern discovery intent explicit; pattern analysis is generated by default")
     parser.add_argument("--pattern-library", default=None, help="Optional JSON pattern library for exemplar matching and saving approved patterns")
-    parser.add_argument("--library-match-threshold", type=float, default=0.62, help="Minimum correlation score for pattern-library matches")
+    parser.add_argument("--library-match-threshold", type=float, default=0.62, help="Minimum similarity score for pattern-library matches")
+    parser.add_argument("--library-match-method", choices=["hybrid", "correlation", "dtw"], default="hybrid", help="Pattern-library match method; hybrid accepts the stronger of correlation and DTW")
     parser.add_argument("--save-pattern-label", default=None, help="Save the selected candidate as an approved pattern exemplar with this analyst label")
     parser.add_argument("--save-pattern-id", default=None, help="Optional stable id for --save-pattern-label; defaults to a slug of the label")
     parser.add_argument("--save-pattern-rank", type=int, default=1, help="Candidate rank to save when --save-pattern-label is used")

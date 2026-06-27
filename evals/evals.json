@@ -47,7 +47,13 @@
       "id": 8,
       "prompt": "The analyst accepted candidate #2 as a rise-fall focus arc. Save that exact pattern and make the report show it clearly.",
       "expected_output": "Runs with --pattern-library, --save-pattern-label, and --save-pattern-rank 2; preserves the analyst label; updates the library JSON; and shows the saved exemplar in report.md, report.html, and prosody.json.",
-      "files": ["hayley-reviewed-pattern.ogg"]
+      "files": ["analyst-reviewed-pattern.ogg"]
+    },
+    {
+      "id": 9,
+      "prompt": "Use Praat and DTW to match this new clip against the approved pattern library.",
+      "expected_output": "Runs with --pitch-method praat when Praat/Parselmouth is installed, uses --library-match-method dtw or hybrid, reports analyzer.pitch_method, match_method, dtw_score, correlation_score, and preserves diagnostic guardrails.",
+      "files": ["approved-pattern-library.json", "new-pattern-clip.ogg"]
     }
   ]
 }

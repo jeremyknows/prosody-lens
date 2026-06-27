@@ -94,7 +94,8 @@ Match a future clip:
 ```bash
 python3 scripts/prosody_analyze.py /absolute/path/to/new-clip.ogg \
   --out-dir ./analysis/prosody/new-clip \
-  --pattern-library ./analysis/prosody/pattern-library.json
+  --pattern-library ./analysis/prosody/pattern-library.json \
+  --library-match-method hybrid
 ```
 
 The report should show:
@@ -103,6 +104,7 @@ The report should show:
 - `pattern_analysis.library_matches`
 - candidate-level `library_matches`
 - an HTML "Pattern Library Matches" table
+- `correlation_score` and `dtw_score` when a library is supplied
 
 Use this language:
 
@@ -136,7 +138,7 @@ Show more than the waveform. Good pattern artifacts can include:
 
 ## Current Local Method
 
-The dependency-light v0.4 method:
+The dependency-light v0.5 method:
 
 1. Convert audio to mono WAV.
 2. Estimate RMS energy and rough pitch.
@@ -153,8 +155,8 @@ The dependency-light v0.4 method:
    - energy build/taper
    - level/subtle contour
 8. Group repeated candidates into loose contour families.
-9. Optionally compare candidate signatures to approved examples in a JSON
-   pattern library.
+9. Optionally compare candidate signatures and pitch/energy sequences to
+   approved examples in a JSON pattern library.
 
 This is intentionally conservative. It is a discovery and visualization aid, not
 a final speech-science classifier.
@@ -165,7 +167,6 @@ For serious speech/accent analysis:
 
 - Praat/Parselmouth for stronger F0/intensity extraction.
 - WhisperX or Montreal Forced Aligner for word/phoneme alignment.
-- Dynamic time warping for exemplar-vs-clip matching.
 - Recurrence plots or motif clustering for repeated contour discovery.
 - Analyst review loop where the expert accepts/rejects candidate families.
 - A small review UI for saving labels without CLI flags.

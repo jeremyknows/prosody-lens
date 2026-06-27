@@ -11,7 +11,7 @@ compatibility: >
   Forced Aligner, openSMILE, librosa, Plotly.
 metadata:
   author: jeremyknows
-  version: "0.4.0"
+  version: "0.5.0"
   category: Audio Analysis & Visualization
   status: EXPERIMENTAL
   last_improved: "2026-06-27"
@@ -59,6 +59,14 @@ Optional higher-fidelity tools:
 No API key is required for the bundled analyzer. Hosted transcription tools such
 as Groq Whisper are optional and require explicit approval for the specific file.
 
+Optional Praat setup:
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+python3 -m pip install -r requirements.txt -r requirements-praat.txt
+```
+
 ## Modes
 
 | Mode | Invocation | Output |
@@ -70,6 +78,7 @@ as Groq Whisper are optional and require explicit approval for the specific file
 | Pattern Discovery | "find prosodic patterns" / `--patterns` | Candidate contour patterns, repeat families, and pattern visuals |
 | Known Pattern | "visualize this known pattern" / `--pattern-label` | Label the exemplar, then show contour candidates and visual options |
 | Pattern Library | "build/match the pattern library" / `--pattern-library` | Save analyst-approved exemplars and match future clips against them |
+| High Fidelity | "use Praat/DTW" / `--pitch-method praat` + `--library-match-method dtw` | Praat/Parselmouth pitch/intensity plus DTW exemplar matching |
 | Coach | "coach this delivery" / `--coach` | Analysis plus practical delivery suggestions |
 
 Default mode is Analyze + Visualize when an audio file is present.
@@ -84,6 +93,7 @@ Default mode is Analyze + Visualize when an audio file is present.
 python3 <skill-root>/scripts/prosody_analyze.py \
   /absolute/path/to/audio.ogg \
   --out-dir ./analysis/prosody/<slug> \
+  --pitch-method auto \
   --speaker speaker-1 \
   --goal clarity \
   --take-label baseline \
@@ -113,7 +123,8 @@ python3 <skill-root>/scripts/prosody_analyze.py \
 python3 <skill-root>/scripts/prosody_analyze.py \
   /absolute/path/to/new-clip.ogg \
   --out-dir ./analysis/prosody/new-clip \
-  --pattern-library ./analysis/prosody/pattern-library.json
+  --pattern-library ./analysis/prosody/pattern-library.json \
+  --library-match-method hybrid
 ```
 
 If the user supplied a transcript:
@@ -128,9 +139,9 @@ python3 <skill-root>/scripts/prosody_analyze.py \
 3. **Read the outputs.**
    - `report.md`: delivery summary, listen-first moments, metrics, guardrails
    - `report.html`: standalone visual report with embedded audio by default
-   - `prosody.json`: schema v0.4 metrics, synthesis, session, trend metrics,
-     pattern analysis, pattern-library matches, progression segments, and time
-     series
+   - `prosody.json`: schema v0.5 metrics, synthesis, session, analyzer method,
+     trend metrics, pattern analysis, pattern-library matches, progression
+     segments, and time series
    - `audio.wav`: normalized mono WAV used for analysis unless `--share-safe`
    - `audio.mp3`: browser-friendly playback copy embedded in `report.html`
      unless `--share-safe` is used
@@ -231,7 +242,7 @@ For repeated speech analysis, label each run with `--speaker`, `--goal`,
 `--memo-type`, and `--take-label`, and append compact trend records with
 `--history`.
 
-Stable trend metrics for v0.4:
+Stable trend metrics for v0.5:
 - pause ratio
 - pause count per minute
 - long pause count per minute
@@ -252,6 +263,7 @@ Read `references/toolchain.md` when:
 - the fallback analyzer is not enough
 - you need word-level alignment, phoneme-level timing, emotion feature sets, or
   publication-quality visualizations
+- the user asks for Praat/Parselmouth or DTW matching
 Read `references/pattern-analysis.md` when:
 - the user asks for speech/accent pattern discovery
 - a known prosodic pattern exemplar is supplied
@@ -264,12 +276,14 @@ Read `references/pattern-library.md` when:
 
 High-fidelity path:
 - Praat/Parselmouth for pitch, intensity, duration, spectrogram, jitter/shimmer
+- DTW matching for variable-speed contour similarity against approved examples
 - WhisperX or Montreal Forced Aligner for word/phoneme timing
 - openSMILE for standardized acoustic feature sets
 - librosa + Plotly for richer visual reports
 
-Ask before installing new dependencies. The bundled script intentionally stays
-limited to Python, numpy, ffmpeg, and ffprobe.
+Praat/Parselmouth is optional. The bundled script still runs with only Python,
+numpy, ffmpeg, and ffprobe; `--pitch-method auto` uses Praat when installed and
+falls back otherwise.
 
 ## Output Scorecard
 

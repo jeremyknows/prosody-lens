@@ -63,6 +63,8 @@ The bundled `scripts/prosody_analyze.py` is intentionally dependency-light:
 - Python stdlib reads WAV samples
 - numpy computes waveform, RMS energy, pauses, and a basic autocorrelation
   pitch estimate
+- optional Praat/Parselmouth extracts higher-fidelity F0 and intensity when
+  installed and selected with `--pitch-method auto` or `--pitch-method praat`
 - the script emits JSON, Markdown, and standalone HTML
 
 This is enough to prove the skill shape and create useful first-pass reports.
@@ -90,7 +92,7 @@ Recommended JSON/report fields:
 - candidate prosodic contour patterns
 - loose repeated contour families
 - optional pattern-library status, saved exemplar metadata, and approved-example
-  match scores
+  match scores, including correlation and DTW components when available
 
 ## Visualization Design
 
@@ -123,10 +125,36 @@ training any model:
 - analyst-approved examples are saved with `--save-pattern-label`
 - future clips are matched with `--pattern-library`
 - match scores compare normalized pitch and energy contour signatures
+- `--library-match-method correlation` uses flat contour correlation
+- `--library-match-method dtw` uses dynamic time warping over pitch/energy
+  contour sequences
+- `--library-match-method hybrid` accepts the stronger of correlation and DTW
 
 This gives the project a reviewable dataset: which labels were accepted, where
 in the audio they occurred, what contour was saved, and which future candidates
 resembled them.
+
+## Optional Praat/Parselmouth
+
+Use a virtual environment; do not force this dependency on every install:
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+python3 -m pip install -r requirements.txt -r requirements-praat.txt
+```
+
+Run:
+
+```bash
+python3 scripts/prosody_analyze.py /absolute/path/to/audio.ogg \
+  --out-dir ./analysis/prosody/praat-run \
+  --pitch-method praat
+```
+
+`--pitch-method auto` uses Praat when `parselmouth` imports successfully and
+falls back to the bundled autocorrelation method otherwise. `--pitch-method
+praat` fails loudly if Praat cannot be used.
 
 Avoid v1 animation unless timing is otherwise hard to understand.
 

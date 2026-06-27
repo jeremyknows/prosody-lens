@@ -11,9 +11,11 @@ for the bundled analyzer.
 - Converts an input audio file into analysis-ready mono WAV.
 - Measures pause structure, rough pitch movement, loudness/energy, possible
   acoustic peaks, and opening/middle/closing progression.
+- Optionally uses Praat/Parselmouth for higher-fidelity pitch and intensity.
 - Surfaces candidate prosodic contour patterns and loose repeat families.
 - Saves analyst-approved pattern exemplars into a JSON library.
-- Matches future clips against approved pattern-library examples.
+- Matches future clips against approved pattern-library examples with
+  correlation, DTW, or hybrid scoring.
 - Generates `prosody.json`, `report.md`, and an interactive `report.html`.
 - Embeds browser-friendly MP3 playback in the HTML by default.
 - Supports repeated-run trend records with `--history`.
@@ -52,6 +54,14 @@ cd ~/.codex/skills/prosody-lens
 python3 -m pip install -r requirements.txt
 ```
 
+Optional Praat/Parselmouth install:
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+python3 -m pip install -r requirements.txt -r requirements-praat.txt
+```
+
 ## Setup Check
 
 Run these before the first analysis:
@@ -78,6 +88,7 @@ brew install ffmpeg
 ```bash
 python3 scripts/prosody_analyze.py /absolute/path/to/audio.ogg \
   --out-dir ./analysis/prosody/sample \
+  --pitch-method auto \
   --speaker speaker-1 \
   --goal clarity \
   --take-label baseline \
@@ -110,7 +121,18 @@ python3 scripts/prosody_analyze.py /absolute/path/to/pattern.ogg \
 python3 scripts/prosody_analyze.py /absolute/path/to/new-clip.ogg \
   --out-dir ./analysis/prosody/new-clip \
   --pattern-library ./analysis/prosody/pattern-library.json \
+  --library-match-method hybrid \
   --library-match-threshold 0.62
+```
+
+High-fidelity local run when Praat/Parselmouth is installed:
+
+```bash
+python3 scripts/prosody_analyze.py /absolute/path/to/audio.ogg \
+  --out-dir ./analysis/prosody/praat-run \
+  --pitch-method praat \
+  --pitch-floor 75 \
+  --pitch-ceiling 400
 ```
 
 With a transcript:
@@ -133,7 +155,7 @@ python3 scripts/prosody_analyze.py /absolute/path/to/audio.ogg \
 
 | File | Purpose |
 | --- | --- |
-| `prosody.json` | Structured metrics, synthesis, session metadata, pattern analysis, trend metrics, progression, and time series. |
+| `prosody.json` | Structured metrics, synthesis, analyzer method, session metadata, pattern analysis, trend metrics, progression, and time series. |
 | `report.md` | Human-readable summary, listen-first moments, metrics, limitations, and pause map. |
 | `report.html` | Standalone interactive report with audio playback, charts, controls, and visual summary. |
 | `pattern-library.json` | Optional analyst-reviewed library when `--pattern-library` and `--save-pattern-label` are used. |
@@ -177,6 +199,8 @@ The library workflow is the serious path for speech-pattern work:
 4. Save the accepted candidate with `--save-pattern-label`.
 5. Run future clips with the same `--pattern-library`.
 6. Review `Pattern Library Matches` in the HTML report and `prosody.json`.
+7. Use `--library-match-method dtw` or `hybrid` when contour timing varies
+   across examples.
 
 Seed patterns are vocabulary only. They become matchable only after approved
 examples are saved. This keeps the analyzer honest: it reports contour
@@ -194,11 +218,12 @@ data-handling tradeoff.
 
 ## Limitations
 
-- The bundled pitch tracker is a practical fallback, not a replacement for
-  Praat/Parselmouth.
+- Praat/Parselmouth is optional. Without it, the analyzer uses a practical
+  fallback pitch tracker.
 - Pattern labels are descriptive contour sketches, not accent diagnoses.
-- Pattern-library matching is correlation-style contour similarity against
-  approved examples; it is not a final phonological classifier.
+- Pattern-library matching is contour similarity against approved examples. DTW
+  helps compare variable-speed contours, but it is not a final phonological
+  classifier.
 - Possible acoustic peaks are ranked places to listen first, not confirmed
   emphasized words.
 - Word-level emphasis and speaking rate need transcript/word alignment.
@@ -213,6 +238,7 @@ data-handling tradeoff.
 | --- | --- | --- |
 | `ffmpeg is required but was not found` | ffmpeg is not installed or not on `PATH`. | Install ffmpeg and rerun `ffmpeg -version`. |
 | `ModuleNotFoundError: numpy` | Python dependency missing. | Run `python3 -m pip install -r requirements.txt`. |
+| `Praat/Parselmouth requested but unavailable` | Optional Praat dependency is not installed in the active Python environment. | Create a venv and install `-r requirements.txt -r requirements-praat.txt`, or rerun with `--pitch-method fallback`. |
 | HTML audio plays choppily | Browser dislikes the embedded playback format. | Regenerate with the latest skill; it embeds MP3 by default and falls back to WAV only if needed. |
 | Pitch numbers look wrong | Fallback pitch tracker is low fidelity or audio is noisy. | Treat pitch as rough, or rerun with Praat/Parselmouth in a higher-fidelity pipeline. |
 | Report should be shared but audio is private | Default HTML embeds raw voice audio. | Rerun with `--share-safe`. |
@@ -229,7 +255,8 @@ python3 scripts/prosody_analyze.py /absolute/path/to/test-audio.ogg \
 python3 scripts/prosody_analyze.py /absolute/path/to/test-audio.ogg \
   --out-dir /tmp/prosody-lens-library-smoke \
   --pattern-library /tmp/prosody-lens-pattern-library.json \
-  --save-pattern-label "smoke test contour"
+  --save-pattern-label "smoke test contour" \
+  --library-match-method hybrid
 test -f /tmp/prosody-lens-smoke/report.html
 test -f /tmp/prosody-lens-smoke/prosody.json
 test -f /tmp/prosody-lens-pattern-library.json

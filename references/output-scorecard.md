@@ -18,7 +18,11 @@ Score each item yes/no:
 8. The interpretation avoids claims about medical conditions, honesty,
    personality, emotion, or intent.
 9. If a pattern library is supplied, the report shows library status, saved
-   exemplar metadata when relevant, and nearest approved-example matches.
+   exemplar metadata when relevant, nearest approved-example matches, match
+   method, and score components when available.
+10. If Praat/Parselmouth is requested, the JSON records whether Praat was used
+   and the report does not incorrectly describe the run as fallback-only.
 
-Passing threshold for publish-quality outputs: 8/9, with items 1, 2, 4, 8, and 9
+Passing threshold for publish-quality outputs: 9/10, with items 1, 2, 4, 8, 9,
+and 10
 required.

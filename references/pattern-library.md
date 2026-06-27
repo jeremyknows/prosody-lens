@@ -40,6 +40,7 @@ Then match a future clip against the approved examples:
 python3 scripts/prosody_analyze.py /absolute/path/to/new-clip.ogg \
   --out-dir ./analysis/prosody/new-clip \
   --pattern-library ./analysis/prosody/pattern-library.json \
+  --library-match-method hybrid \
   --library-match-threshold 0.62
 ```
 
@@ -66,6 +67,7 @@ The current library schema is intentionally simple:
           "pitch_points_st": [],
           "energy_points_z": [],
           "signature": [],
+          "sequence": [],
           "notes": "Why this example matters"
         }
       ]
@@ -83,12 +85,19 @@ For each candidate contour, the analyzer:
 
 1. Resamples pitch and energy into comparable point arrays.
 2. Normalizes pitch and energy into a compact signature.
-3. Compares the candidate signature to every approved example signature.
-4. Reports matches above `--library-match-threshold`.
+3. Stores a two-channel pitch/energy sequence for DTW matching.
+4. Compares the candidate to every approved example.
+5. Reports matches above `--library-match-threshold`.
 
-This is correlation-style contour matching, not phonological classification. A
-high score means "this shape resembles this approved example." It does not mean
-the clip has a confirmed accent feature, emotional state, or clinical trait.
+Match methods:
+
+- `correlation`: flat normalized contour signature similarity.
+- `dtw`: dynamic time warping over pitch/energy contour sequences.
+- `hybrid`: accepts the stronger of correlation and DTW.
+
+A high score means "this shape resembles this approved example." It does not
+mean the clip has a confirmed accent feature, emotional state, or clinical
+trait.
 
 ## Analyst Review Loop
 
@@ -107,6 +116,5 @@ The JSON library is enough for a portable v1. Upgrade when the work needs:
 
 - Praat/Parselmouth F0 and intensity extraction.
 - Word or phoneme alignment via WhisperX or Montreal Forced Aligner.
-- Dynamic time warping for stronger different-speed matching.
 - A review UI for accept/reject/rename instead of CLI flags.
 - Separate train/validation/test folders once there are enough examples.
