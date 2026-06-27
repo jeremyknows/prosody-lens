@@ -1,0 +1,29 @@
+{
+  "skill_name": "prosody-lens",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Analyze this voice memo for prosody and give me practical delivery feedback.",
+      "expected_output": "Runs the audio analyzer, cites generated report artifacts, summarizes pitch, pacing, pauses, emphasis, and limitations.",
+      "files": ["sample-voice.ogg"]
+    },
+    {
+      "id": 2,
+      "prompt": "Visualize the prosody of this narration take.",
+      "expected_output": "Generates an HTML visual report with waveform, energy, pitch contour, pause bands, and summary metrics.",
+      "files": ["sample-narration.wav"]
+    },
+    {
+      "id": 3,
+      "prompt": "Compare these two takes and tell me which one has better clarity and pacing.",
+      "expected_output": "Runs one analysis per file, compares speaking rate when available, pause structure, rough pitch variety, possible acoustic peaks, and explains goal-dependent tradeoffs.",
+      "files": ["take-a.wav", "take-b.wav"]
+    },
+    {
+      "id": 4,
+      "prompt": "Show the speaker's pacing and pause progression across these five voice memos.",
+      "expected_output": "Labels each run with speaker/goal/take metadata, appends compact history records, compares stable trend metrics over time, and states transcript/alignment caveats.",
+      "files": ["memo-1.ogg", "memo-2.ogg", "memo-3.ogg", "memo-4.ogg", "memo-5.ogg"]
+    }
+  ]
+}
