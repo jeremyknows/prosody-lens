@@ -22,7 +22,10 @@ Score each item yes/no:
    method, and score components when available.
 10. If Praat/Parselmouth is requested, the JSON records whether Praat was used
    and the report does not incorrectly describe the run as fallback-only.
+11. If pattern candidates exist, the HTML report includes a Pattern Review
+    Workbench that selects candidates and exports valid JSON with `signature`,
+    `sequence`, review decision, label, notes, and `suggested_cli`.
 
-Passing threshold for publish-quality outputs: 9/10, with items 1, 2, 4, 8, 9,
-and 10
+Passing threshold for publish-quality outputs: 10/11, with items 1, 2, 4, 8, 9,
+10, and 11
 required.

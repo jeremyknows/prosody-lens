@@ -54,6 +54,12 @@
       "prompt": "Use Praat and DTW to match this new clip against the approved pattern library.",
       "expected_output": "Runs with --pitch-method praat when Praat/Parselmouth is installed, uses --library-match-method dtw or hybrid, reports analyzer.pitch_method, match_method, dtw_score, correlation_score, and preserves diagnostic guardrails.",
       "files": ["approved-pattern-library.json", "new-pattern-clip.ogg"]
+    },
+    {
+      "id": 10,
+      "prompt": "Open the report, approve candidate #2 as a rise-fall focus arc, add a note, and export the review JSON.",
+      "expected_output": "Uses the HTML Pattern Review Workbench, selects candidate #2, sets decision to approved, preserves the analyst label and notes, exports valid JSON with source_audio, candidate rank, signature, sequence, library matches when present, and a suggested_cli using --save-pattern-rank 2.",
+      "files": ["review-pattern-clip.ogg"]
     }
   ]
 }

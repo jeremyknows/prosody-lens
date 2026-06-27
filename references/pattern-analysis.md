@@ -104,6 +104,8 @@ The report should show:
 - `pattern_analysis.library_matches`
 - candidate-level `library_matches`
 - an HTML "Pattern Library Matches" table
+- an HTML "Pattern Review Workbench" that exports the selected candidate,
+  analyst decision, label, notes, signature, sequence, and suggested CLI command
 - `correlation_score` and `dtw_score` when a library is supplied
 
 Use this language:
@@ -131,17 +133,20 @@ Show more than the waveform. Good pattern artifacts can include:
    analyst can see where patterns cluster.
 4. **Pattern Library Match Table** — candidate spans ranked against approved
    exemplars, with score, label, and click-to-seek.
-5. **Future Recurrence Matrix** — a heatmap of similar contour windows. Useful
+5. **Pattern Review Workbench** — approve/reject/rename candidates, add notes,
+   and export JSON for the library update handoff.
+6. **Future Recurrence Matrix** — a heatmap of similar contour windows. Useful
    once the project needs stronger repeated-pattern discovery.
-6. **Future Aligned Transcript Lane** — words/phonemes under the contour. This
+7. **Future Aligned Transcript Lane** — words/phonemes under the contour. This
    needs WhisperX or Montreal Forced Aligner.
 
 ## Current Local Method
 
-The dependency-light v0.5 method:
+The local v0.6 method:
 
 1. Convert audio to mono WAV.
-2. Estimate RMS energy and rough pitch.
+2. Extract pitch and intensity with Praat/Parselmouth when installed, or use the
+   dependency-light fallback.
 3. Detect pauses and phrase-like spans.
 4. Split long spans into sliding phrase windows.
 5. Resample pitch and energy inside each span.
@@ -157,6 +162,8 @@ The dependency-light v0.5 method:
 8. Group repeated candidates into loose contour families.
 9. Optionally compare candidate signatures and pitch/energy sequences to
    approved examples in a JSON pattern library.
+10. Expose a static review workbench so an analyst can approve/reject/rename a
+    candidate and export the exact JSON handoff.
 
 This is intentionally conservative. It is a discovery and visualization aid, not
 a final speech-science classifier.
@@ -169,4 +176,3 @@ For serious speech/accent analysis:
 - WhisperX or Montreal Forced Aligner for word/phoneme alignment.
 - Recurrence plots or motif clustering for repeated contour discovery.
 - Analyst review loop where the expert accepts/rejects candidate families.
-- A small review UI for saving labels without CLI flags.

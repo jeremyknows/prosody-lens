@@ -1484,6 +1484,54 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
             return "none"
         return f"{html.escape(str(match.get('label')))} <span class=\"score\">{html.escape(str(match.get('score')))}</span> <span class=\"caption\">{html.escape(str(match.get('match_method', 'n/a')))}</span>"
 
+    def review_number(value: object, places: int = 3) -> float | None:
+        if value is None:
+            return None
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(number):
+            return None
+        return round(number, places)
+
+    def review_points(values: object) -> list[float]:
+        if not isinstance(values, list):
+            return []
+        return [item for item in (review_number(value) for value in values) if item is not None]
+
+    def review_match_payload(match: dict) -> dict:
+        return {
+            "pattern_id": match.get("pattern_id"),
+            "label": match.get("label"),
+            "status": match.get("status"),
+            "example_id": match.get("example_id"),
+            "score": review_number(match.get("score")),
+            "correlation_score": review_number(match.get("correlation_score")),
+            "dtw_score": review_number(match.get("dtw_score")),
+            "match_method": match.get("match_method"),
+            "source_audio": match.get("source_audio"),
+        }
+
+    def review_candidate_payload(item: dict) -> dict:
+        return {
+            "rank": item.get("rank"),
+            "family_id": item.get("family_id"),
+            "start": review_number(item.get("start")),
+            "end": review_number(item.get("end")),
+            "duration": review_number(item.get("duration")),
+            "candidate_contour_label": item.get("label"),
+            "candidate_score": review_number(item.get("score")),
+            "pitch_range_st": review_number(item.get("pitch_range_st")),
+            "energy_range_db": review_number(item.get("energy_range_db")),
+            "pitch_trace_quality": item.get("pitch_trace_quality"),
+            "pitch_points_st": review_points(item.get("pitch_points_st")),
+            "energy_points_z": review_points(item.get("energy_points_z")),
+            "signature": pattern_signature_from_candidate(item),
+            "sequence": pattern_sequence_from_candidate(item),
+            "library_matches": [review_match_payload(match) for match in (item.get("library_matches") or [])],
+        }
+
     def pattern_card_html(item: dict) -> str:
         match = top_library_match(item)
         match_html = ""
@@ -1501,6 +1549,7 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
             f"<div class=\"pattern-title\">{html.escape(str(item['label']))}</div>"
             f"<p>Pitch range {html.escape(fmt(item.get('pitch_range_st'), ' st'))}; energy range {html.escape(fmt(item.get('energy_range_db'), ' dB'))}; pitch trace {html.escape(str(item.get('pitch_trace_quality', 'n/a')))}; score {html.escape(str(item['score']))}.</p>"
             f"{match_html}"
+            f"<button class=\"review-pick\" type=\"button\" data-review-rank=\"{html.escape(str(item['rank']))}\">Review candidate #{html.escape(str(item['rank']))}</button>"
             f"</article>"
         )
 
@@ -1542,10 +1591,11 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
             f"<td>{html.escape(fmt(item.get('pitch_range_st'), ' st'))}</td>"
             f"<td>{html.escape(fmt(item.get('energy_range_db'), ' dB'))}</td>"
             f"<td>{html.escape(str(item.get('pitch_trace_quality', 'n/a')))}</td>"
-            f"<td>{library_match_cell(item)}</td></tr>"
+            f"<td>{library_match_cell(item)}</td>"
+            f"<td><button class=\"review-pick compact\" type=\"button\" data-review-rank=\"{html.escape(str(item['rank']))}\">Review</button></td></tr>"
         )
         for item in patterns[:16]
-    ) or '<tr><td colspan="9">No candidate contour patterns detected.</td></tr>'
+    ) or '<tr><td colspan="10">No candidate contour patterns detected.</td></tr>'
 
     library_rows = "\n".join(
         (
@@ -1589,6 +1639,478 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
         )
         for segment in data["progression"]["segments"]
     )
+
+    review_context = {
+        "schema_version": "0.1",
+        "type": "prosody_lens_pattern_review_context",
+        "generated_at": data.get("generated_at"),
+        "source_audio": data.get("source_audio"),
+        "session": {
+            "speaker_id": data.get("session", {}).get("speaker_id"),
+            "goal": data.get("session", {}).get("goal"),
+            "memo_type": data.get("session", {}).get("memo_type"),
+            "take_label": data.get("session", {}).get("take_label"),
+            "pattern_label": data.get("session", {}).get("pattern_label"),
+        },
+        "analyzer": {
+            "pitch_method": pitch_method_label,
+            "intensity_method": intensity_method_label,
+        },
+        "pattern_library": library_info,
+        "candidates": [review_candidate_payload(item) for item in patterns[:16]],
+    }
+    review_json = json.dumps(review_context, separators=(",", ":"), ensure_ascii=True).replace("</", "<\\/")
+    review_workbench = """
+<h2>Pattern Review Workbench</h2>
+<section class="review-workbench" id="patternReviewWorkbench" aria-label="Pattern review workbench">
+  <div class="review-panel">
+    <p class="review-kicker">Active candidate</p>
+    <h3 id="reviewTitle">No candidate selected</h3>
+    <p id="reviewMeta" class="caption">Choose a candidate from the cards or table.</p>
+    <div class="review-controls">
+      <button type="button" id="reviewPlaySpan" class="review-secondary">Play span</button>
+      <button type="button" id="reviewLoopSpan" class="review-secondary">Loop span</button>
+    </div>
+    <dl class="review-stats">
+      <div><dt>Pitch range</dt><dd id="reviewPitch">n/a</dd></div>
+      <div><dt>Energy range</dt><dd id="reviewEnergy">n/a</dd></div>
+      <div><dt>Trace quality</dt><dd id="reviewQuality">n/a</dd></div>
+      <div><dt>Score</dt><dd id="reviewScore">n/a</dd></div>
+    </dl>
+    <div id="reviewMatch" class="review-match">No library match selected.</div>
+  </div>
+  <form class="review-form" id="patternReviewForm">
+    <div class="decision-tabs" role="group" aria-label="Review decision">
+      <button type="button" class="decision-button" data-decision="approved">Approve</button>
+      <button type="button" class="decision-button active" data-decision="needs_review">Needs review</button>
+      <button type="button" class="decision-button" data-decision="rejected">Reject</button>
+    </div>
+    <label>Analyst label
+      <input id="reviewLabel" type="text" autocomplete="off" placeholder="e.g. rise-fall focus arc" />
+    </label>
+    <label>Pattern ID
+      <input id="reviewPatternId" type="text" autocomplete="off" placeholder="rise-fall-focus-arc" />
+    </label>
+    <label>Notes
+      <textarea id="reviewNotes" rows="4" placeholder="Why this candidate should be saved, split, or rejected."></textarea>
+    </label>
+    <div class="review-controls">
+      <button type="button" id="copyReviewJson" class="review-export">Copy JSON</button>
+      <button type="button" id="downloadReviewJson" class="review-export">Download JSON</button>
+      <span id="reviewStatus" class="caption" role="status"></span>
+    </div>
+    <pre id="reviewPayload" aria-label="Pattern review JSON payload">{}</pre>
+  </form>
+</section>
+"""
+
+    review_css = """
+.review-workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 0.92fr) minmax(320px, 1.08fr);
+  gap: 14px;
+  align-items: stretch;
+  margin: 16px 0 22px;
+  padding: 14px;
+  border-radius: 24px;
+  background: linear-gradient(135deg, rgba(18,49,58,0.96), rgba(23,44,53,0.92));
+  color: var(--paper);
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 20px 48px -28px rgba(18,49,58,0.72);
+}
+.review-panel, .review-form {
+  min-width: 0;
+  border-radius: 18px;
+  padding: 14px;
+  background: rgba(254, 249, 236, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(254,249,236,0.14);
+}
+.review-kicker {
+  margin: 0 0 8px;
+  color: rgba(254,249,236,0.72);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+.review-panel h3 {
+  margin: 0;
+  color: var(--paper);
+  font-size: 24px;
+  line-height: 1.08;
+  text-wrap: balance;
+}
+.review-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+  margin-top: 12px;
+}
+.review-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 14px 0 0;
+}
+.review-stats div {
+  min-width: 0;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(254,249,236,0.1);
+  box-shadow: inset 0 0 0 1px rgba(254,249,236,0.12);
+}
+.review-stats dt {
+  color: rgba(254,249,236,0.66);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.review-stats dd {
+  margin: 4px 0 0;
+  color: var(--paper);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.review-match {
+  margin-top: 12px;
+  border-radius: 14px;
+  padding: 11px;
+  color: var(--teal);
+  background: var(--surface-strong);
+}
+.decision-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.decision-button, .review-secondary, .review-export, .review-pick {
+  appearance: none;
+  min-height: 40px;
+  border: 0;
+  border-radius: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  transition-property: transform, background-color, box-shadow, color;
+  transition-duration: 150ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+.decision-button, .review-secondary, .review-export {
+  color: var(--paper);
+  background: rgba(254,249,236,0.12);
+  box-shadow: inset 0 0 0 1px rgba(254,249,236,0.16);
+}
+.decision-button:hover, .decision-button.active, .review-secondary:hover, .review-export:hover {
+  color: white;
+  background: var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.22), 0 8px 18px -12px rgba(229,53,70,0.9);
+}
+.review-pick {
+  width: 100%;
+  margin-top: 10px;
+  color: var(--teal);
+  background: var(--teal-soft);
+  box-shadow: inset 0 0 0 1px rgba(18,49,58,0.1);
+}
+.review-pick.compact {
+  width: auto;
+  margin-top: 0;
+}
+.review-pick:hover, .review-pick.active {
+  color: white;
+  background: var(--teal);
+}
+.decision-button:active, .review-secondary:active, .review-export:active, .review-pick:active {
+  transform: scale(0.96);
+}
+.review-form label {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0;
+  color: rgba(254,249,236,0.72);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.review-form input, .review-form textarea {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(254,249,236,0.96);
+  color: var(--ink);
+  padding: 10px 11px;
+  font: inherit;
+  letter-spacing: 0;
+  box-shadow: inset 0 0 0 1px rgba(18,49,58,0.1);
+}
+.review-form textarea {
+  resize: vertical;
+}
+#reviewPayload {
+  max-height: 280px;
+  overflow: auto;
+  margin: 12px 0 0;
+  border-radius: 14px;
+  padding: 12px;
+  color: #f8fafc;
+  background: rgba(6,18,24,0.72);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.45;
+}
+"""
+
+    review_script = r"""
+(function () {
+  const dataEl = document.getElementById("patternReviewData");
+  const workbench = document.getElementById("patternReviewWorkbench");
+  if (!dataEl || !workbench) return;
+
+  let reviewContext = {};
+  try {
+    reviewContext = JSON.parse(dataEl.textContent || "{}");
+  } catch (error) {
+    workbench.classList.add("empty");
+    return;
+  }
+
+  const candidates = Array.isArray(reviewContext.candidates) ? reviewContext.candidates : [];
+  const state = { candidate: candidates[0] || null, decision: "needs_review" };
+  const els = {
+    title: document.getElementById("reviewTitle"),
+    meta: document.getElementById("reviewMeta"),
+    pitch: document.getElementById("reviewPitch"),
+    energy: document.getElementById("reviewEnergy"),
+    quality: document.getElementById("reviewQuality"),
+    score: document.getElementById("reviewScore"),
+    match: document.getElementById("reviewMatch"),
+    label: document.getElementById("reviewLabel"),
+    patternId: document.getElementById("reviewPatternId"),
+    notes: document.getElementById("reviewNotes"),
+    payload: document.getElementById("reviewPayload"),
+    status: document.getElementById("reviewStatus"),
+    copy: document.getElementById("copyReviewJson"),
+    download: document.getElementById("downloadReviewJson"),
+    play: document.getElementById("reviewPlaySpan"),
+    loop: document.getElementById("reviewLoopSpan"),
+  };
+
+  function metric(value, suffix = "") {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return "n/a";
+    return `${number.toFixed(2)}${suffix}`;
+  }
+
+  function slugify(value) {
+    return String(value || "pattern")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "pattern";
+  }
+
+  function defaultLabel(candidate) {
+    const topMatch = candidate?.library_matches?.[0];
+    return topMatch?.label || candidate?.candidate_contour_label || `candidate-${candidate?.rank || "pattern"}`;
+  }
+
+  function quoteCli(value) {
+    return `"${String(value || "").replace(/"/g, '\\"')}"`;
+  }
+
+  function suggestedCli(candidate, label, patternId, notes) {
+    const rank = candidate?.rank || 1;
+    const idPart = patternId ? ` --save-pattern-id ${quoteCli(patternId)}` : "";
+    const notesPart = notes ? ` --save-pattern-notes ${quoteCli(notes)}` : "";
+    return `python3 scripts/prosody_analyze.py <audio> --out-dir <analysis-dir> --pattern-library <pattern-library.json> --save-pattern-label ${quoteCli(label)}${idPart} --save-pattern-rank ${rank}${notesPart}`;
+  }
+
+  function setStatus(message) {
+    if (!els.status) return;
+    els.status.textContent = message;
+    window.clearTimeout(setStatus.timer);
+    setStatus.timer = window.setTimeout(() => { els.status.textContent = ""; }, 2200);
+  }
+
+  function buildPayload() {
+    const candidate = state.candidate || {};
+    const label = (els.label?.value || defaultLabel(candidate)).trim();
+    const patternId = (els.patternId?.value || slugify(label)).trim();
+    const notes = (els.notes?.value || "").trim();
+    return {
+      schema_version: "0.1",
+      type: "prosody_lens_pattern_review",
+      created_at: new Date().toISOString(),
+      source_audio: reviewContext.source_audio || null,
+      generated_at: reviewContext.generated_at || null,
+      session: reviewContext.session || {},
+      analyzer: reviewContext.analyzer || {},
+      decision: state.decision,
+      label,
+      pattern_id: patternId,
+      notes,
+      candidate: {
+        rank: candidate.rank,
+        family_id: candidate.family_id,
+        start: candidate.start,
+        end: candidate.end,
+        duration: candidate.duration,
+        candidate_contour_label: candidate.candidate_contour_label,
+        candidate_score: candidate.candidate_score,
+        pitch_trace_quality: candidate.pitch_trace_quality,
+        pitch_range_st: candidate.pitch_range_st,
+        energy_range_db: candidate.energy_range_db,
+        pitch_points_st: candidate.pitch_points_st || [],
+        energy_points_z: candidate.energy_points_z || [],
+        signature: candidate.signature || [],
+        sequence: candidate.sequence || [],
+        library_matches: candidate.library_matches || [],
+      },
+      suggested_agent_action: state.decision === "approved" ? "save_pattern_exemplar" : state.decision,
+      suggested_cli: state.decision === "approved" ? suggestedCli(candidate, label, patternId, notes) : null,
+    };
+  }
+
+  function renderPayload() {
+    if (!els.payload) return;
+    els.payload.textContent = JSON.stringify(buildPayload(), null, 2);
+  }
+
+  function setDecision(decision) {
+    state.decision = decision;
+    document.querySelectorAll("[data-decision]").forEach((button) => {
+      button.classList.toggle("active", button.dataset.decision === decision);
+    });
+    renderPayload();
+  }
+
+  function renderCandidate(candidate) {
+    if (!candidate) return;
+    const start = Number(candidate.start) || 0;
+    const end = Number(candidate.end) || start;
+    const match = candidate.library_matches?.[0];
+    if (els.title) els.title.textContent = `Candidate #${candidate.rank}: ${candidate.family_id || "pattern"}`;
+    if (els.meta) els.meta.textContent = `${formatTime(start)} to ${formatTime(end)} - ${candidate.candidate_contour_label || "unlabeled contour"}`;
+    if (els.pitch) els.pitch.textContent = metric(candidate.pitch_range_st, " st");
+    if (els.energy) els.energy.textContent = metric(candidate.energy_range_db, " dB");
+    if (els.quality) els.quality.textContent = candidate.pitch_trace_quality || "n/a";
+    if (els.score) els.score.textContent = metric(candidate.candidate_score);
+    if (els.match) {
+      if (match) {
+        els.match.textContent = `Nearest library match: ${match.label} (${metric(match.score)}) via ${match.match_method || "n/a"} - DTW ${metric(match.dtw_score)}, corr ${metric(match.correlation_score)}`;
+      } else {
+        els.match.textContent = "No library match above threshold for this candidate.";
+      }
+    }
+    document.querySelectorAll("[data-review-rank]").forEach((button) => {
+      button.classList.toggle("active", String(button.dataset.reviewRank) === String(candidate.rank));
+    });
+  }
+
+  function selectCandidate(rank) {
+    const next = candidates.find((candidate) => String(candidate.rank) === String(rank)) || candidates[0];
+    if (!next) return;
+    state.candidate = next;
+    const label = defaultLabel(next);
+    if (els.label) els.label.value = label;
+    if (els.patternId) els.patternId.value = slugify(label);
+    renderCandidate(next);
+    renderPayload();
+  }
+
+  function playCandidate(shouldLoop) {
+    const candidate = state.candidate;
+    if (!candidate) return;
+    const start = Number(candidate.start) || 0;
+    const end = Number(candidate.end) || Math.min(duration, start + 1);
+    const seekButton = Array.from(document.querySelectorAll(".seek[data-seek]")).find((button) => {
+      return Math.abs((Number(button.dataset.seek) || 0) - start) < 0.001;
+    });
+    if (seekButton && typeof setActiveRange === "function") setActiveRange(seekButton);
+    else {
+      try {
+        activeRange = { start, end };
+        if (typeof syncLoopLength === "function") syncLoopLength(end - start);
+        if (typeof setActiveMomentText === "function") setActiveMomentText();
+      } catch (error) {}
+    }
+    if (typeof seekTo === "function") seekTo(start, true);
+    if (shouldLoop) {
+      try {
+        loopEnabled = true;
+        if (loopButton) {
+          loopButton.textContent = "Loop active: on";
+          loopButton.classList.add("active");
+        }
+      } catch (error) {}
+    }
+  }
+
+  async function copyPayload() {
+    const text = els.payload?.textContent || JSON.stringify(buildPayload(), null, 2);
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable");
+      await navigator.clipboard.writeText(text);
+      setStatus("Copied");
+    } catch (error) {
+      const range = document.createRange();
+      range.selectNodeContents(els.payload);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      document.execCommand("copy");
+      selection.removeAllRanges();
+      setStatus("Copied");
+    }
+  }
+
+  function downloadPayload() {
+    const payload = buildPayload();
+    const blob = new Blob([JSON.stringify(payload, null, 2) + "\n"], { type: "application/json" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `prosody-pattern-review-${payload.candidate.rank || "candidate"}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(link.href), 500);
+    setStatus("Downloaded");
+  }
+
+  document.querySelectorAll("[data-review-rank]").forEach((button) => {
+    button.addEventListener("click", () => selectCandidate(button.dataset.reviewRank));
+  });
+  document.querySelectorAll("[data-decision]").forEach((button) => {
+    button.addEventListener("click", () => setDecision(button.dataset.decision || "needs_review"));
+  });
+  if (els.label) {
+    els.label.addEventListener("input", () => {
+      if (els.patternId) els.patternId.value = slugify(els.label.value);
+      renderPayload();
+    });
+  }
+  if (els.patternId) els.patternId.addEventListener("input", renderPayload);
+  if (els.notes) els.notes.addEventListener("input", renderPayload);
+  if (els.copy) els.copy.addEventListener("click", copyPayload);
+  if (els.download) els.download.addEventListener("click", downloadPayload);
+  if (els.play) els.play.addEventListener("click", () => playCandidate(false));
+  if (els.loop) els.loop.addEventListener("click", () => playCandidate(true));
+
+  if (candidates.length) selectCandidate(candidates[0].rank);
+  else {
+    workbench.classList.add("empty");
+    Object.values(els).forEach((element) => {
+      if (element && "disabled" in element) element.disabled = true;
+    });
+    renderPayload();
+  }
+})();
+"""
 
     if include_audio:
         audio_src, audio_type = audio_data_uri(playback_path)
@@ -1714,6 +2236,7 @@ th {{ background: var(--teal-soft); color: var(--teal); }}
 code {{ background: var(--teal-soft); padding: 2px 5px; border-radius: 5px; }}
 .seek {{ appearance: none; min-height: 40px; border: 0; border-radius: 10px; background: var(--accent-soft); color: var(--teal); padding: 6px 10px; cursor: pointer; font: inherit; font-variant-numeric: tabular-nums; box-shadow: inset 0 0 0 1px rgba(229,53,70,0.22); transition-property: transform, background-color, box-shadow, color; transition-duration: 150ms; transition-timing-function: cubic-bezier(0.2, 0, 0, 1); }}
 .seek:hover, .seek.active {{ background: var(--accent); color: white; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18), 0 8px 18px -12px rgba(229,53,70,0.9); }}
+{review_css}
 .chart-tip {{ position: fixed; z-index: 20; background: #111827; color: white; padding: 6px 8px; border-radius: 6px; font-size: 12px; pointer-events: none; box-shadow: 0 4px 14px rgba(0,0,0,0.22); }}
 @media (prefers-reduced-motion: reduce) {{
   *, *::before, *::after {{ transition-duration: 1ms !important; animation-duration: 1ms !important; }}
@@ -1724,6 +2247,9 @@ code {{ background: var(--teal-soft); padding: 2px 5px; border-radius: 5px; }}
   .hero-stat {{ width: max-content; min-width: 128px; text-align: left; }}
   .transport {{ grid-template-columns: 1fr 1fr 1fr; }}
   .transport input, #timeReadout {{ grid-column: 1 / -1; }}
+  .review-workbench {{ grid-template-columns: 1fr; }}
+  .decision-tabs {{ grid-template-columns: 1fr; }}
+  .review-stats {{ grid-template-columns: 1fr; }}
 }}
 </style>
 </head>
@@ -1758,6 +2284,7 @@ code {{ background: var(--teal-soft); padding: 2px 5px; border-radius: 5px; }}
   <li><strong>Read this as:</strong> candidate contour shapes derived from pitch, loudness, and pause boundaries; not confirmed accent or phonology labels.</li>
 </ul></div>
 <div class="pattern-grid">{pattern_cards}</div>
+{review_workbench}
 
 <h2>Pattern Library Matches</h2>
 <table>
@@ -1817,7 +2344,7 @@ code {{ background: var(--teal-soft); padding: 2px 5px; border-radius: 5px; }}
 
 <h2>Pattern Candidates</h2>
 <table>
-<thead><tr><th>Family</th><th>Rank</th><th>Start</th><th>End</th><th>Contour</th><th>Pitch Range</th><th>Energy Range</th><th>Pitch Quality</th><th>Library Match</th></tr></thead>
+<thead><tr><th>Family</th><th>Rank</th><th>Start</th><th>End</th><th>Contour</th><th>Pitch Range</th><th>Energy Range</th><th>Pitch Quality</th><th>Library Match</th><th>Review</th></tr></thead>
 <tbody>{pattern_rows}</tbody>
 </table>
 
@@ -1827,6 +2354,7 @@ Use word-level alignment for stronger phonetic analysis. Acoustic peaks are not
 confirmed emphasized words. Do not treat this as clinical or diagnostic output.</p>
 </main>
 <div id="chartTip" class="chart-tip" hidden></div>
+<script type="application/json" id="patternReviewData">{review_json}</script>
 <script>
 const audio = document.getElementById("audio");
 const duration = Number(document.querySelector("main").dataset.duration) || 0;
@@ -2081,6 +2609,9 @@ if (togglePeaks) {{
 }}
 
 updatePlayhead();
+</script>
+<script>
+{review_script}
 </script>
 </body>
 </html>

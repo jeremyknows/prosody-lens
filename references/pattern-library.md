@@ -34,6 +34,17 @@ python3 scripts/prosody_analyze.py /absolute/path/to/pattern.ogg \
   --save-pattern-notes "Accepted after listening to the top contour candidate"
 ```
 
+Or use the HTML review handoff:
+
+1. Open `report.html`.
+2. Select a candidate in `Pattern Lens` or `Pattern Candidates`.
+3. In `Pattern Review Workbench`, choose `Approve`, edit the analyst label and
+   pattern ID, and add notes.
+4. Copy or download the JSON payload.
+5. Run the payload's `suggested_cli`, or map its `label`, `pattern_id`, and
+   `candidate.rank` to `--save-pattern-label`, `--save-pattern-id`, and
+   `--save-pattern-rank`.
+
 Then match a future clip against the approved examples:
 
 ```bash
@@ -105,10 +116,17 @@ Use this loop with a speech coach or analyst:
 
 1. Run the report.
 2. Listen to the top candidates using click-to-seek.
-3. Accept, reject, or rename the candidate.
-4. Save accepted examples with `--save-pattern-label`.
-5. Rerun future clips against the same library.
-6. Review false positives and raise the threshold or split patterns when needed.
+3. Accept, reject, or rename the candidate in `Pattern Review Workbench`.
+4. Export the JSON payload so the rank, label, notes, signature, and DTW
+   sequence are preserved exactly.
+5. Save accepted examples with `--save-pattern-label` or the payload's
+   `suggested_cli`.
+6. Rerun future clips against the same library.
+7. Review false positives and raise the threshold or split patterns when needed.
+
+Rejected and `needs_review` payloads are still useful. Keep them as analyst
+evidence, but do not add them as approved examples unless a human later accepts
+the span.
 
 ## When To Upgrade
 
@@ -116,5 +134,4 @@ The JSON library is enough for a portable v1. Upgrade when the work needs:
 
 - Praat/Parselmouth F0 and intensity extraction.
 - Word or phoneme alignment via WhisperX or Montreal Forced Aligner.
-- A review UI for accept/reject/rename instead of CLI flags.
 - Separate train/validation/test folders once there are enough examples.

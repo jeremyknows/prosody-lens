@@ -104,6 +104,9 @@ Required controls for interactive reports:
 - Set loop from playhead
 - Pause and peak visibility toggles
 - Click-to-seek on waveform, energy, and pitch charts
+- Pattern Review Workbench controls when pattern candidates exist:
+  review-candidate buttons, decision segmented control, analyst label, pattern
+  ID, notes, copy JSON, and download JSON
 
 Buttons should use:
 
@@ -150,5 +153,7 @@ Before sharing an HTML artifact, verify:
 - Chart click-to-seek works.
 - Loop duration and set-loop-from-playhead work.
 - Pause/peak toggles work.
+- Pattern Review Workbench selects candidates, updates the decision state, and
+  exports valid JSON without layout overflow.
 - Desktop and mobile layouts have no incoherent overlap.
 - Browser console has no errors.

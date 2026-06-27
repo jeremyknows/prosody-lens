@@ -16,6 +16,8 @@ for the bundled analyzer.
 - Saves analyst-approved pattern exemplars into a JSON library.
 - Matches future clips against approved pattern-library examples with
   correlation, DTW, or hybrid scoring.
+- Adds a static Pattern Review Workbench inside `report.html` for approving,
+  rejecting, renaming, annotating, and exporting candidate review JSON.
 - Generates `prosody.json`, `report.md`, and an interactive `report.html`.
 - Embeds browser-friendly MP3 playback in the HTML by default.
 - Supports repeated-run trend records with `--history`.
@@ -157,7 +159,7 @@ python3 scripts/prosody_analyze.py /absolute/path/to/audio.ogg \
 | --- | --- |
 | `prosody.json` | Structured metrics, synthesis, analyzer method, session metadata, pattern analysis, trend metrics, progression, and time series. |
 | `report.md` | Human-readable summary, listen-first moments, metrics, limitations, and pause map. |
-| `report.html` | Standalone interactive report with audio playback, charts, controls, and visual summary. |
+| `report.html` | Standalone interactive report with audio playback, charts, controls, visual summary, and Pattern Review Workbench. |
 | `pattern-library.json` | Optional analyst-reviewed library when `--pattern-library` and `--save-pattern-label` are used. |
 | `audio.wav` | Normalized mono WAV used for analysis unless `--share-safe` is used. |
 | `audio.mp3` | Browser-friendly playback copy embedded in HTML when available. |
@@ -174,6 +176,7 @@ Ask your agent:
 - "Find candidate prosodic patterns in this clip."
 - "Visualize this known prosodic pattern exemplar."
 - "Save this as an approved pattern and use it to match future clips."
+- "Open the report, approve candidate #2, and export the review JSON."
 - "Visualize the cadence and pauses in this narration take."
 - "Compare these two takes for clarity and pacing."
 - "Show progression over time across these recordings."
@@ -196,15 +199,22 @@ The library workflow is the serious path for speech-pattern work:
 1. Start from `references/pattern-library-starter.json`.
 2. Run a report on a known or suspected pattern clip.
 3. Listen to the top candidate cards in `report.html`.
-4. Save the accepted candidate with `--save-pattern-label`.
-5. Run future clips with the same `--pattern-library`.
-6. Review `Pattern Library Matches` in the HTML report and `prosody.json`.
-7. Use `--library-match-method dtw` or `hybrid` when contour timing varies
+4. Use `Pattern Review Workbench` to approve/reject/rename the candidate and
+   copy or download the JSON payload.
+5. Save approved candidates with the payload's `suggested_cli`, or manually use
+   `--save-pattern-label` and `--save-pattern-rank`.
+6. Run future clips with the same `--pattern-library`.
+7. Review `Pattern Library Matches` in the HTML report and `prosody.json`.
+8. Use `--library-match-method dtw` or `hybrid` when contour timing varies
    across examples.
 
 Seed patterns are vocabulary only. They become matchable only after approved
 examples are saved. This keeps the analyzer honest: it reports contour
 similarity to known examples, not unsupported accent diagnoses.
+
+The review workbench is intentionally static. It does not write to disk from the
+browser; it exports a JSON handoff with the selected rank, label, pattern ID,
+notes, normalized contour signature, DTW sequence, and suggested CLI command.
 
 ## Privacy And Sharing
 
@@ -263,4 +273,5 @@ test -f /tmp/prosody-lens-pattern-library.json
 ```
 
 For UI changes, open `report.html` and verify audio playback, chart click-to-seek,
-loop duration controls, mobile layout, and no console errors.
+loop duration controls, Pattern Review Workbench JSON export, mobile layout, and
+no console errors.

@@ -11,7 +11,7 @@ compatibility: >
   Forced Aligner, openSMILE, librosa, Plotly.
 metadata:
   author: jeremyknows
-  version: "0.5.0"
+  version: "0.6.0"
   category: Audio Analysis & Visualization
   status: EXPERIMENTAL
   last_improved: "2026-06-27"
@@ -78,6 +78,7 @@ python3 -m pip install -r requirements.txt -r requirements-praat.txt
 | Pattern Discovery | "find prosodic patterns" / `--patterns` | Candidate contour patterns, repeat families, and pattern visuals |
 | Known Pattern | "visualize this known pattern" / `--pattern-label` | Label the exemplar, then show contour candidates and visual options |
 | Pattern Library | "build/match the pattern library" / `--pattern-library` | Save analyst-approved exemplars and match future clips against them |
+| Pattern Review | "review/approve/rename pattern candidates" | Use the HTML Pattern Review Workbench to export an approval/rejection JSON payload |
 | High Fidelity | "use Praat/DTW" / `--pitch-method praat` + `--library-match-method dtw` | Praat/Parselmouth pitch/intensity plus DTW exemplar matching |
 | Coach | "coach this delivery" / `--coach` | Analysis plus practical delivery suggestions |
 
@@ -154,6 +155,26 @@ python3 <skill-root>/scripts/prosody_analyze.py \
    audio was noisy, if no transcript was supplied, or if word-level alignment was
    unavailable.
 
+### Pattern Review Workbench
+
+When the request involves approving, rejecting, renaming, or building a pattern
+library:
+
+1. Open `report.html`.
+2. Use `Pattern Lens` cards or the `Pattern Candidates` table to choose a
+   candidate.
+3. In `Pattern Review Workbench`, listen to the span, set the decision
+   (`Approve`, `Needs review`, or `Reject`), edit the analyst label/pattern ID,
+   and add notes.
+4. Copy or download the JSON payload.
+5. If approved, apply it with the included `suggested_cli` command or rerun the
+   analyzer with `--pattern-library`, `--save-pattern-label`, and
+   `--save-pattern-rank`.
+
+The HTML is static and does not write to disk by itself. The exported payload is
+the handoff object an agent can use to update `pattern-library.json` without
+guessing which candidate the analyst meant.
+
 ## Report Shape
 
 Use this structure when replying:
@@ -226,12 +247,16 @@ Prefer an interactive HTML report for v1:
 - pattern lens with normalized contour mini-maps for candidate prosodic shapes
 - pattern library status, saved exemplar notes, and nearest approved-example
   matches when `--pattern-library` is supplied
+- Pattern Review Workbench for selecting, approving/rejecting, renaming,
+  annotating, and exporting candidate review JSON
 - pattern candidate table with family IDs and click-to-seek controls
 - click-to-seek on waveform, energy, and pitch charts
 - synchronized playhead across charts
 - scrubber, playback speed, previous/next moment, active-moment looping,
   custom loop duration, and set-loop-from-playhead control
 - pause/peak visibility toggles
+- review candidate buttons, decision segmented control, label/ID fields, notes,
+  copy JSON, and download JSON controls
 
 Static PNG is useful for sharing, but less useful for inspection. Animation is a
 later enhancement only if it clarifies timing; do not build animation for theater.
@@ -288,10 +313,12 @@ falls back otherwise.
 ## Output Scorecard
 
 Read `references/output-scorecard.md` before reviewing publish-quality outputs.
-Minimum acceptable report quality is 7/8, with these mandatory:
+Minimum acceptable report quality is 10/11, with these mandatory:
 - analyzer ran on the actual audio
 - JSON, Markdown, and HTML artifacts exist
 - pattern requests include `pattern_analysis` in `prosody.json`
+- pattern-library or review requests include a usable Pattern Review Workbench
+  in `report.html`
 - limitations are stated
 - no claims are made about medical conditions, honesty, personality, emotion, or
   intent
@@ -313,6 +340,9 @@ For HTML/UI changes, open `report.html` and verify:
 - seek buttons and chart click-to-seek work
 - loop duration and set-loop-from-playhead work
 - pause/peak toggles work
+- Pattern Review Workbench selects candidates, switches decision state,
+  generates valid JSON with `signature`, `sequence`, and `suggested_cli`, and
+  copy/download controls are wired
 - mobile layout has no horizontal overflow
 - browser console has no errors
 
