@@ -11,7 +11,7 @@ compatibility: >
   Forced Aligner, openSMILE, librosa, Plotly.
 metadata:
   author: jeremyknows
-  version: "0.2.5"
+  version: "0.3.0"
   category: Audio Analysis & Visualization
   status: EXPERIMENTAL
   last_improved: "2026-06-27"
@@ -32,6 +32,8 @@ medical conditions, emotional state, or intent.
 Use this skill when the user:
 - uploads an audio file and asks how the voice sounds
 - asks for prosody, cadence, rhythm, pitch, emphasis, pauses, or vocal variety
+- wants to identify or visualize prosodic patterns in speech/accent work
+- provides a clip that is already known to contain a prosodic pattern
 - wants a visual report of a voice memo
 - wants to compare delivery across takes
 - wants a repeatable process for speech, narration, teaching, presentation, or
@@ -65,6 +67,8 @@ as Groq Whisper are optional and require explicit approval for the specific file
 | Visualize | "visualize the prosody" / `--viz` | Interactive HTML report + Markdown |
 | Compare | "compare these two takes" / `--compare` | Run one report per take, then synthesize differences |
 | Progression | "show progression over time" / `--progression` | Append/read trend records and compare stable metrics |
+| Pattern Discovery | "find prosodic patterns" / `--patterns` | Candidate contour patterns, repeat families, and pattern visuals |
+| Known Pattern | "visualize this known pattern" / `--pattern-label` | Label the exemplar, then show contour candidates and visual options |
 | Coach | "coach this delivery" / `--coach` | Analysis plus practical delivery suggestions |
 
 Default mode is Analyze + Visualize when an audio file is present.
@@ -79,10 +83,20 @@ Default mode is Analyze + Visualize when an audio file is present.
 python3 <skill-root>/scripts/prosody_analyze.py \
   /absolute/path/to/audio.ogg \
   --out-dir ./analysis/prosody/<slug> \
-  --speaker jeremy \
+  --speaker speaker-1 \
   --goal clarity \
   --take-label baseline \
   --history ./analysis/prosody/prosody-history.jsonl
+```
+
+If the user provides an audio clip already identified as a prosodic pattern:
+
+```bash
+python3 <skill-root>/scripts/prosody_analyze.py \
+  /absolute/path/to/pattern-clip.ogg \
+  --out-dir ./analysis/prosody/<slug> \
+  --pattern-label "known rising terminal contour" \
+  --pattern-notes "label supplied by analyst"
 ```
 
 If the user supplied a transcript:
@@ -97,8 +111,8 @@ python3 <skill-root>/scripts/prosody_analyze.py \
 3. **Read the outputs.**
    - `report.md`: delivery summary, listen-first moments, metrics, guardrails
    - `report.html`: standalone visual report with embedded audio by default
-   - `prosody.json`: schema v0.2 metrics, synthesis, session, trend metrics,
-     progression segments, and time series
+   - `prosody.json`: schema v0.3 metrics, synthesis, session, trend metrics,
+     pattern analysis, progression segments, and time series
    - `audio.wav`: normalized mono WAV used for analysis unless `--share-safe`
    - `audio.mp3`: browser-friendly playback copy embedded in `report.html`
      unless `--share-safe` is used
@@ -139,6 +153,13 @@ when the user wants a report that omits the audio player and raw audio copy.
 ## Interpretation Rules
 
 - Treat pitch, intensity, and pause metrics as evidence, not verdicts.
+- Treat pattern labels as descriptive contour sketches, not phonological or
+  accent diagnoses.
+- If the user or analyst supplies a known pattern label, preserve that label as
+  analyst input and do not "correct" it from fallback metrics alone.
+- If the user asks the agent to discover patterns, surface candidates and
+  families with confidence language: "candidate", "possible", "listen here",
+  "similar contour family".
 - Do not infer emotion, honesty, confidence, pathology, or personality from
   prosody alone.
 - If the user wants coaching, frame suggestions as experiments:
@@ -155,6 +176,8 @@ Read `references/interface-design.md` before creating, editing, or reviewing
 HTML artifacts. The report should feel like a polished listening instrument, not
 a generic data dump. The bundled `report.html` generator is the reference
 implementation for palette, spacing, controls, and responsive behavior.
+Read `references/pattern-analysis.md` when the request is about identifying,
+matching, or visualizing prosodic patterns.
 
 Prefer an interactive HTML report for v1:
 - audio player
@@ -168,6 +191,8 @@ Prefer an interactive HTML report for v1:
   tabular numbers, balanced headings, and tactile control states
 - top "listen first" moments
 - progression snapshot across opening/middle/closing thirds
+- pattern lens with normalized contour mini-maps for candidate prosodic shapes
+- pattern candidate table with family IDs and click-to-seek controls
 - click-to-seek on waveform, energy, and pitch charts
 - synchronized playhead across charts
 - scrubber, playback speed, previous/next moment, active-moment looping,
@@ -183,7 +208,7 @@ For repeated speech analysis, label each run with `--speaker`, `--goal`,
 `--memo-type`, and `--take-label`, and append compact trend records with
 `--history`.
 
-Stable trend metrics for v0.2:
+Stable trend metrics for v0.3:
 - pause ratio
 - pause count per minute
 - long pause count per minute
@@ -204,6 +229,11 @@ Read `references/toolchain.md` when:
 - the fallback analyzer is not enough
 - you need word-level alignment, phoneme-level timing, emotion feature sets, or
   publication-quality visualizations
+Read `references/pattern-analysis.md` when:
+- the user asks for speech/accent pattern discovery
+- a known prosodic pattern exemplar is supplied
+- you need to explain the difference between waveform, pitch contour, intensity
+  contour, rhythm, and pattern families
 
 High-fidelity path:
 - Praat/Parselmouth for pitch, intensity, duration, spectrogram, jitter/shimmer
@@ -220,6 +250,7 @@ Read `references/output-scorecard.md` before reviewing publish-quality outputs.
 Minimum acceptable report quality is 7/8, with these mandatory:
 - analyzer ran on the actual audio
 - JSON, Markdown, and HTML artifacts exist
+- pattern requests include `pattern_analysis` in `prosody.json`
 - limitations are stated
 - no claims are made about medical conditions, honesty, personality, emotion, or
   intent

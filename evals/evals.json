@@ -24,6 +24,18 @@
       "prompt": "Show the speaker's pacing and pause progression across these five voice memos.",
       "expected_output": "Labels each run with speaker/goal/take metadata, appends compact history records, compares stable trend metrics over time, and states transcript/alignment caveats.",
       "files": ["memo-1.ogg", "memo-2.ogg", "memo-3.ogg", "memo-4.ogg", "memo-5.ogg"]
+    },
+    {
+      "id": 5,
+      "prompt": "Find candidate prosodic patterns in this accent-analysis clip and visualize the contours.",
+      "expected_output": "Runs the analyzer, reports pattern_analysis candidates and families, shows contour-map visualization in HTML, and avoids accent diagnosis claims.",
+      "files": ["accent-pattern.ogg"]
+    },
+    {
+      "id": 6,
+      "prompt": "This clip is a known prosodic pattern exemplar; visualize it without renaming the pattern.",
+      "expected_output": "Runs with --pattern-label, preserves the analyst-supplied label, surfaces contour candidates, and states fallback-method limitations.",
+      "files": ["known-pattern.ogg"]
     }
   ]
 }

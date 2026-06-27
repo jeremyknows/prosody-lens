@@ -87,6 +87,8 @@ Recommended JSON/report fields:
 - session metadata for repeated runs
 - compact trend metrics for longitudinal comparison
 - opening/middle/closing progression segments
+- candidate prosodic contour patterns
+- loose repeated contour families
 
 ## Visualization Design
 
@@ -100,11 +102,14 @@ Recommended v1 visual report:
 - delivery summary
 - "listen first" acoustic peak moments
 - progression snapshot
+- pattern contour cards and motif table
 
 Recommended v2:
 - word-level transcript lane
 - hover over a word to see pitch/intensity/duration
 - compare two takes with aligned phrase timing
+- exemplar matching with dynamic time warping
+- recurrence/heatmap view for repeated contour shapes
 
 Avoid v1 animation unless timing is otherwise hard to understand.
 

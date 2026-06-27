@@ -11,6 +11,7 @@ for the bundled analyzer.
 - Converts an input audio file into analysis-ready mono WAV.
 - Measures pause structure, rough pitch movement, loudness/energy, possible
   acoustic peaks, and opening/middle/closing progression.
+- Surfaces candidate prosodic contour patterns and loose repeat families.
 - Generates `prosody.json`, `report.md`, and an interactive `report.html`.
 - Embeds browser-friendly MP3 playback in the HTML by default.
 - Supports repeated-run trend records with `--history`.
@@ -83,6 +84,15 @@ python3 scripts/prosody_analyze.py /absolute/path/to/audio.ogg \
 open ./analysis/prosody/sample/report.html
 ```
 
+Known pattern exemplar:
+
+```bash
+python3 scripts/prosody_analyze.py /absolute/path/to/pattern.ogg \
+  --out-dir ./analysis/prosody/known-pattern \
+  --pattern-label "analyst supplied label" \
+  --pattern-notes "why this clip matters"
+```
+
 With a transcript:
 
 ```bash
@@ -103,7 +113,7 @@ python3 scripts/prosody_analyze.py /absolute/path/to/audio.ogg \
 
 | File | Purpose |
 | --- | --- |
-| `prosody.json` | Structured metrics, synthesis, session metadata, trend metrics, progression, and time series. |
+| `prosody.json` | Structured metrics, synthesis, session metadata, pattern analysis, trend metrics, progression, and time series. |
 | `report.md` | Human-readable summary, listen-first moments, metrics, limitations, and pause map. |
 | `report.html` | Standalone interactive report with audio playback, charts, controls, and visual summary. |
 | `audio.wav` | Normalized mono WAV used for analysis unless `--share-safe` is used. |
@@ -118,6 +128,8 @@ embedded WAV playback.
 Ask your agent:
 
 - "Analyze this voice memo for prosody and give me practical delivery feedback."
+- "Find candidate prosodic patterns in this clip."
+- "Visualize this known prosodic pattern exemplar."
 - "Visualize the cadence and pauses in this narration take."
 - "Compare these two takes for clarity and pacing."
 - "Show progression over time across these recordings."
@@ -147,6 +159,9 @@ data-handling tradeoff.
 
 - The bundled pitch tracker is a practical fallback, not a replacement for
   Praat/Parselmouth.
+- Pattern labels are descriptive contour sketches, not accent diagnoses.
+- Exemplar matching is label-preserving in v0.3; automatic matching against a
+  separate reference clip is a future higher-fidelity upgrade.
 - Possible acoustic peaks are ranked places to listen first, not confirmed
   emphasized words.
 - Word-level emphasis and speaking rate need transcript/word alignment.

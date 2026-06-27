@@ -361,6 +361,265 @@ def score_acoustic_peaks(
     return ranked
 
 
+def interp_window(
+    times: np.ndarray,
+    values: np.ndarray,
+    start: float,
+    end: float,
+    points: int = 24,
+) -> np.ndarray | None:
+    if end <= start:
+        return None
+    mask = (times >= start) & (times <= end) & np.isfinite(values)
+    if np.sum(mask) < 3:
+        return None
+    local_times = times[mask]
+    local_values = values[mask]
+    targets = np.linspace(start, end, points)
+    return np.interp(targets, local_times, local_values)
+
+
+def normalize_vector(values: np.ndarray) -> np.ndarray:
+    finite = values[np.isfinite(values)]
+    if len(finite) == 0:
+        return np.zeros_like(values, dtype=np.float64)
+    mean = float(np.mean(finite))
+    std = float(np.std(finite))
+    if std < 1e-6:
+        return np.zeros_like(values, dtype=np.float64)
+    return (values - mean) / std
+
+
+def smooth_values(values: np.ndarray, window: int = 5) -> np.ndarray:
+    if len(values) < 3:
+        return values
+    window = max(3, int(window) | 1)
+    if len(values) < window:
+        window = max(3, len(values) if len(values) % 2 == 1 else len(values) - 1)
+    if window < 3:
+        return values
+    padded = np.pad(values, (window // 2, window // 2), mode="edge")
+    kernel = np.ones(window, dtype=np.float64) / window
+    return np.convolve(padded, kernel, mode="valid")
+
+
+def vector_similarity(a: list[float], b: list[float]) -> float:
+    if len(a) != len(b) or not a:
+        return 0.0
+    av = np.array(a, dtype=np.float64)
+    bv = np.array(b, dtype=np.float64)
+    if float(np.std(av)) < 1e-6 or float(np.std(bv)) < 1e-6:
+        return 0.0
+    corr = float(np.corrcoef(av, bv)[0, 1])
+    if not math.isfinite(corr):
+        return 0.0
+    return round(max(-1.0, min(1.0, corr)), 3)
+
+
+def pause_near(pauses: list[dict[str, float]], point: float, side: str) -> float:
+    best = 0.0
+    for pause in pauses:
+        start = float(pause["start"])
+        end = float(pause["end"])
+        duration = float(pause["duration"])
+        if side == "before" and end <= point and point - end <= 0.35:
+            best = max(best, duration)
+        if side == "after" and start >= point and start - point <= 0.35:
+            best = max(best, duration)
+    return round(best, 3)
+
+
+def candidate_spans(duration: float, pauses: list[dict[str, float]]) -> list[tuple[float, float, str]]:
+    spans: list[tuple[float, float, str]] = []
+    cursor = 0.0
+    for pause in sorted(pauses, key=lambda item: float(item["start"])):
+        start = cursor
+        end = float(pause["start"])
+        if end - start >= 0.45:
+            spans.append((start, end, "pause-bounded phrase"))
+        cursor = max(cursor, float(pause["end"]))
+    if duration - cursor >= 0.45:
+        spans.append((cursor, duration, "pause-bounded phrase"))
+
+    normalized: list[tuple[float, float, str]] = []
+    for start, end, kind in spans:
+        span_duration = end - start
+        if span_duration <= 4.0:
+            normalized.append((start, end, kind))
+            continue
+        window = 2.4
+        hop = 1.2
+        current = start
+        while current + 0.9 <= end:
+            normalized.append((current, min(end, current + window), "sliding phrase window"))
+            current += hop
+    return normalized
+
+
+def classify_contour(pitch_start: float | None, pitch_mid: float | None, pitch_end: float | None, pitch_range: float | None, energy_delta: float) -> str:
+    if pitch_start is None or pitch_mid is None or pitch_end is None or pitch_range is None:
+        if energy_delta >= 4:
+            return "energy build"
+        if energy_delta <= -4:
+            return "energy taper"
+        return "energy-led contour"
+    pitch_delta = pitch_end - pitch_start
+    if pitch_range < 1.5 and abs(energy_delta) < 3:
+        return "level contour"
+    if pitch_mid > pitch_start + 1.2 and pitch_mid > pitch_end + 1.2:
+        return "rise-fall arc"
+    if pitch_mid < pitch_start - 1.2 and pitch_mid < pitch_end - 1.2:
+        return "fall-rise arc"
+    if pitch_delta >= 2.0:
+        return "rising contour"
+    if pitch_delta <= -2.0:
+        return "falling contour"
+    if pitch_range >= 3.5:
+        return "wavy contour"
+    return "subtle contour"
+
+
+def build_pattern_analysis(
+    duration: float,
+    times: np.ndarray,
+    energy_db: np.ndarray,
+    pitch_arr: np.ndarray,
+    pauses: list[dict[str, float]],
+) -> dict:
+    candidates: list[dict] = []
+    for start, end, source in candidate_spans(duration, pauses):
+        if end - start < 0.45:
+            continue
+        energy_window = interp_window(times, energy_db, start, end)
+        if energy_window is None:
+            continue
+        pitch_window = interp_window(times, pitch_arr, start, end)
+
+        pitch_points: list[float | None]
+        pitch_start = pitch_mid = pitch_end = pitch_range = None
+        pitch_trace_quality = "unavailable"
+        if pitch_window is not None and np.all(pitch_window > 0):
+            pitch_base = float(np.median(pitch_window))
+            if pitch_base > 0:
+                pitch_st = 12.0 * np.log2(pitch_window / pitch_base)
+                pitch_st = smooth_values(pitch_st, window=5)
+                jump_p90 = float(np.percentile(np.abs(np.diff(pitch_st)), 90)) if len(pitch_st) > 2 else 0.0
+                pitch_trace_quality = "unstable" if jump_p90 > 5.0 else "usable"
+                pitch_st = np.clip(pitch_st, -8.0, 8.0)
+                pitch_points = [round(float(v), 3) for v in pitch_st]
+                third = max(1, len(pitch_st) // 3)
+                pitch_start = round(float(np.median(pitch_st[:third])), 3)
+                pitch_mid = round(float(np.median(pitch_st[third : 2 * third])), 3)
+                pitch_end = round(float(np.median(pitch_st[-third:])), 3)
+                pitch_range = round(float(np.max(pitch_st) - np.min(pitch_st)), 3)
+            else:
+                pitch_points = [None for _ in range(len(energy_window))]
+        else:
+            pitch_points = [None for _ in range(len(energy_window))]
+
+        energy_delta = round(float(np.median(energy_window[-6:]) - np.median(energy_window[:6])), 3)
+        energy_range = round(float(np.max(energy_window) - np.min(energy_window)), 3)
+        label = classify_contour(pitch_start, pitch_mid, pitch_end, pitch_range, energy_delta)
+        if pitch_trace_quality == "unstable" and energy_range >= 6:
+            label = "energy-led contour"
+        boundary_score = min(1.0, pause_near(pauses, start, "before") + pause_near(pauses, end, "after"))
+        pitch_strength = 0.2 if pitch_trace_quality == "unstable" else min(12.0, (pitch_range or 0.0)) / 12.0
+        energy_strength = min(80.0, energy_range) / 80.0
+        duration_score = min(1.0, (end - start) / 4.0)
+        score = round((pitch_strength * 0.36) + (energy_strength * 0.32) + (duration_score * 0.20) + (boundary_score * 0.12), 3)
+        if score < 0.18:
+            continue
+
+        pitch_signature = [0.0 if item is None else float(item) for item in pitch_points]
+        energy_signature = [round(float(v), 3) for v in normalize_vector(energy_window)]
+        combined_signature = [round(float(v), 3) for v in normalize_vector(np.array(pitch_signature + energy_signature, dtype=np.float64))]
+        candidates.append(
+            {
+                "start": round(float(start), 3),
+                "end": round(float(end), 3),
+                "duration": round(float(end - start), 3),
+                "source": source,
+                "label": label,
+                "score": score,
+                "pitch_start_st": pitch_start,
+                "pitch_mid_st": pitch_mid,
+                "pitch_end_st": pitch_end,
+                "pitch_range_st": pitch_range,
+                "pitch_trace_quality": pitch_trace_quality,
+                "energy_delta_db": energy_delta,
+                "energy_range_db": energy_range,
+                "pause_before_seconds": pause_near(pauses, start, "before"),
+                "pause_after_seconds": pause_near(pauses, end, "after"),
+                "pitch_points_st": pitch_points,
+                "energy_points_z": energy_signature,
+                "signature": combined_signature,
+                "method_note": "candidate contour from local pitch/energy/pause signals; not a confirmed phonological label",
+            }
+        )
+
+    ranked = sorted(candidates, key=lambda item: float(item["score"]), reverse=True)[:24]
+    families: list[dict] = []
+    for index, candidate in enumerate(ranked, start=1):
+        candidate["rank"] = index
+        family_id = None
+        for family in families:
+            if family["label"] != candidate["label"]:
+                continue
+            similarity = vector_similarity(candidate["signature"], family["prototype_signature"])
+            family["members"].append(index)
+            family["count"] += 1
+            family["best_similarity"] = max(float(family.get("best_similarity", 0.0)), similarity)
+            family_id = family["family_id"]
+            break
+        if family_id is None:
+            family_id = f"P{len(families) + 1}"
+            families.append(
+                {
+                    "family_id": family_id,
+                    "label": candidate["label"],
+                    "count": 1,
+                    "members": [index],
+                    "prototype_signature": candidate["signature"],
+                    "best_similarity": 1.0,
+                }
+            )
+        candidate["family_id"] = family_id
+
+    public_candidates = []
+    for candidate in ranked:
+        cleaned = dict(candidate)
+        cleaned.pop("signature", None)
+        public_candidates.append(cleaned)
+
+    for family in families:
+        family.pop("prototype_signature", None)
+
+    summary = "No repeatable contour candidates were detected by the fallback analyzer."
+    if public_candidates:
+        top = public_candidates[0]
+        repeat_count = sum(1 for family in families if int(family["count"]) > 1)
+        summary = (
+            f"Top candidate is a {top['label']} at {fmt_time(top['start'])}-{fmt_time(top['end'])}. "
+            f"{repeat_count} contour family/families repeat within this clip."
+        )
+    return {
+        "mode": "discovery",
+        "summary": summary,
+        "candidates": public_candidates,
+        "families": families,
+        "visualization_options": [
+            "contour map: normalized pitch and energy mini-shapes per candidate",
+            "motif table: ranked candidate patterns with family IDs",
+            "timeline overlay: pause-bounded candidate spans over audio",
+        ],
+        "limitations": [
+            "Pattern labels are descriptive contour sketches, not phonological diagnoses.",
+            "Accent interpretation needs expert review and usually word/phoneme alignment.",
+            "Fallback pitch tracking can miss noisy, creaky, very high, or multi-speaker regions.",
+        ],
+    }
+
+
 def segment_summary(
     label: str,
     start: float,
@@ -567,6 +826,11 @@ def append_history(history_path: Path, data: dict) -> None:
             "strongest_delivery_signal": data["synthesis"]["strongest_delivery_signal"],
             "progression_note": data["synthesis"]["progression_note"],
         },
+        "pattern_analysis": {
+            "summary": data.get("pattern_analysis", {}).get("summary"),
+            "family_count": len(data.get("pattern_analysis", {}).get("families", [])),
+            "candidate_count": len(data.get("pattern_analysis", {}).get("candidates", [])),
+        },
     }
     history_path.parent.mkdir(parents=True, exist_ok=True)
     with history_path.open("a", encoding="utf-8") as handle:
@@ -587,10 +851,42 @@ def time_ticks(duration: float, width: int, height: int) -> str:
     return "\n".join(ticks)
 
 
+def pattern_mini_svg(candidate: dict, width: int = 220, height: int = 86) -> str:
+    pitch_points = candidate.get("pitch_points_st") or []
+    energy_points = candidate.get("energy_points_z") or []
+
+    def points(values: list, ymin: float, ymax: float) -> str:
+        usable = [None if value is None else float(value) for value in values]
+        if not usable:
+            return ""
+        coords = []
+        denominator = max(1, len(usable) - 1)
+        for index, value in enumerate(usable):
+            if value is None or not math.isfinite(value):
+                continue
+            x = 8 + (width - 16) * (index / denominator)
+            clipped = max(ymin, min(ymax, value))
+            y = height - 8 - (height - 16) * ((clipped - ymin) / (ymax - ymin))
+            coords.append(f"{x:.1f},{y:.1f}")
+        return " ".join(coords)
+
+    pitch_poly = points(pitch_points, -6.0, 6.0)
+    energy_poly = points(energy_points, -2.5, 2.5)
+    pitch_line = f'<polyline fill="none" stroke="#0f6772" stroke-width="2.4" points="{pitch_poly}" />' if pitch_poly else ""
+    energy_line = f'<polyline fill="none" stroke="#e53546" stroke-width="2" opacity="0.78" points="{energy_poly}" />' if energy_poly else ""
+    return (
+        f'<svg class="mini-contour" viewBox="0 0 {width} {height}" role="img" aria-label="Pattern contour">'
+        f'<line x1="8" y1="{height / 2:.1f}" x2="{width - 8}" y2="{height / 2:.1f}" stroke="rgba(23,44,53,0.18)" />'
+        f"{energy_line}{pitch_line}</svg>"
+    )
+
+
 def write_report(out_dir: Path, data: dict, audio_name: str) -> None:
     metrics = data["metrics"]
     synthesis = data["synthesis"]
     peaks = data.get("acoustic_peak_candidates", data.get("emphasis_candidates", []))
+    pattern_analysis = data.get("pattern_analysis", {})
+    patterns = pattern_analysis.get("candidates", [])
     share = data["share"]
     lines = [
         "# Prosody Lens Report",
@@ -615,6 +911,30 @@ def write_report(out_dir: Path, data: dict, audio_name: str) -> None:
             lines.append(f"- {fmt_time(item['start'])} to {fmt_time(item['end'])}: {item['label']} ({item['why']})")
     else:
         lines.append("- No strong acoustic peaks detected by the fallback analyzer.")
+
+    lines.extend(
+        [
+            "",
+            "## Prosodic Pattern Candidates",
+            "",
+            f"- Pattern summary: {pattern_analysis.get('summary', 'Pattern analysis unavailable.')}",
+        ]
+    )
+    if pattern_analysis.get("known_pattern_label"):
+        lines.append(f"- Known pattern label: {pattern_analysis['known_pattern_label']}")
+    if pattern_analysis.get("operator_notes"):
+        lines.append(f"- Pattern notes: {pattern_analysis['operator_notes']}")
+    if patterns:
+        for item in patterns[:10]:
+            lines.append(
+                f"- {item['family_id']} #{item['rank']} {fmt_time(item['start'])} to {fmt_time(item['end'])}: "
+                f"{item['label']} (score {item['score']}, pitch range {fmt(item.get('pitch_range_st'), ' st')}, "
+                f"energy range {fmt(item.get('energy_range_db'), ' dB')}, "
+                f"pitch trace {item.get('pitch_trace_quality', 'n/a')})"
+            )
+    else:
+        lines.append("- No candidate contour patterns detected.")
+    lines.append("- Visualization options: " + "; ".join(pattern_analysis.get("visualization_options", [])) + ".")
 
     lines.extend(
         [
@@ -727,6 +1047,8 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
     metrics = data["metrics"]
     synthesis = data["synthesis"]
     peaks = data.get("acoustic_peak_candidates", data.get("emphasis_candidates", []))
+    pattern_analysis = data.get("pattern_analysis", {})
+    patterns = pattern_analysis.get("candidates", [])
 
     cards = "\n".join(
         [
@@ -753,6 +1075,33 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
         f"<li><button class=\"seek\" data-seek=\"{float(item['start']):.3f}\" data-end=\"{float(item['end']):.3f}\">{html.escape(fmt_time(item['start']))}</button> {html.escape(item['label'])}: {html.escape(item['why'])}</li>"
         for item in synthesis["listen_first"]
     ) or "<li>No strong acoustic peaks detected by the fallback analyzer.</li>"
+
+    pattern_cards = "\n".join(
+        (
+            f"<article class=\"pattern-card\">"
+            f"<div class=\"pattern-head\"><span>{html.escape(str(item['family_id']))}</span>"
+            f"<button class=\"seek\" data-seek=\"{float(item['start']):.3f}\" data-end=\"{float(item['end']):.3f}\">{html.escape(fmt_time(item['start']))}</button></div>"
+            f"{pattern_mini_svg(item)}"
+            f"<div class=\"pattern-title\">{html.escape(str(item['label']))}</div>"
+            f"<p>Pitch range {html.escape(fmt(item.get('pitch_range_st'), ' st'))}; energy range {html.escape(fmt(item.get('energy_range_db'), ' dB'))}; pitch trace {html.escape(str(item.get('pitch_trace_quality', 'n/a')))}; score {html.escape(str(item['score']))}.</p>"
+            f"</article>"
+        )
+        for item in patterns[:8]
+    ) or '<div class="notice">No candidate contour patterns detected.</div>'
+
+    pattern_rows = "\n".join(
+        (
+            f"<tr><td>{html.escape(str(item['family_id']))}</td>"
+            f"<td>#{item['rank']}</td>"
+            f"<td><button class=\"seek\" data-seek=\"{float(item['start']):.3f}\" data-end=\"{float(item['end']):.3f}\">{html.escape(fmt_time(item['start']))}</button></td>"
+            f"<td>{html.escape(fmt_time(item['end']))}</td>"
+            f"<td>{html.escape(str(item['label']))}</td>"
+            f"<td>{html.escape(fmt(item.get('pitch_range_st'), ' st'))}</td>"
+            f"<td>{html.escape(fmt(item.get('energy_range_db'), ' dB'))}</td>"
+            f"<td>{html.escape(str(item.get('pitch_trace_quality', 'n/a')))}</td></tr>"
+        )
+        for item in patterns[:16]
+    ) or '<tr><td colspan="8">No candidate contour patterns detected.</td></tr>'
 
     summary_items = "\n".join(
         [
@@ -873,6 +1222,12 @@ audio {{ filter: drop-shadow(0 8px 22px rgba(23, 44, 53, 0.12)); }}
 .label {{ font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-weight: 800; }}
 .value {{ font-size: 22px; margin-top: 4px; font-weight: 750; font-variant-numeric: tabular-nums; color: var(--teal); }}
 .track {{ background: var(--surface); box-shadow: var(--shadow-border); border-radius: 18px; margin: 12px 0 20px; padding: 12px; overflow-x: auto; }}
+.pattern-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 16px 0 20px; }}
+.pattern-card {{ background: var(--surface); border-radius: 18px; padding: 12px; box-shadow: var(--shadow-border); }}
+.pattern-head {{ display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--teal); font-weight: 800; }}
+.pattern-title {{ margin-top: 8px; color: var(--teal); font-weight: 800; }}
+.pattern-card p {{ margin: 6px 0 0; color: var(--muted); font-size: 13px; }}
+.mini-contour {{ width: 100%; height: auto; margin-top: 8px; background: var(--surface-strong); border-radius: 12px; box-shadow: inset 0 0 0 1px rgba(23,44,53,0.07); }}
 svg {{ width: 100%; min-width: 0; height: auto; display: block; }}
 svg[data-track] {{ cursor: crosshair; }}
 .axis {{ stroke: rgba(23,44,53,0.18); stroke-width: 1; }}
@@ -920,6 +1275,14 @@ code {{ background: var(--teal-soft); padding: 2px 5px; border-radius: 5px; }}
 
 <h2>Listen First</h2>
 <div class="summary"><ul>{listen_items}</ul></div>
+
+<h2>Pattern Lens</h2>
+<div class="summary"><ul>
+  <li><strong>Summary:</strong> {html.escape(pattern_analysis.get('summary', 'Pattern analysis unavailable.'))}</li>
+  <li><strong>Known label:</strong> {html.escape(str(pattern_analysis.get('known_pattern_label') or 'none supplied'))}</li>
+  <li><strong>Read this as:</strong> candidate contour shapes derived from pitch, loudness, and pause boundaries; not confirmed accent or phonology labels.</li>
+</ul></div>
+<div class="pattern-grid">{pattern_cards}</div>
 
 <div class="cards">{cards}</div>
 
@@ -969,6 +1332,12 @@ code {{ background: var(--teal-soft); padding: 2px 5px; border-radius: 5px; }}
 <table>
 <thead><tr><th>Rank</th><th>Start</th><th>End</th><th>Reason</th><th>Score</th></tr></thead>
 <tbody>{peak_rows}</tbody>
+</table>
+
+<h2>Pattern Candidates</h2>
+<table>
+<thead><tr><th>Family</th><th>Rank</th><th>Start</th><th>End</th><th>Contour</th><th>Pitch Range</th><th>Energy Range</th><th>Pitch Quality</th></tr></thead>
+<tbody>{pattern_rows}</tbody>
 </table>
 
 <h2>Limitations</h2>
@@ -1307,6 +1676,11 @@ def analyze(args: argparse.Namespace) -> dict:
         energy_p90,
         pitch_p90,
     )[:50]
+    pattern_analysis = build_pattern_analysis(duration, times, energy_db, pitch_arr, pauses)
+    if args.pattern_label:
+        pattern_analysis["known_pattern_label"] = args.pattern_label
+    if args.pattern_notes:
+        pattern_analysis["operator_notes"] = args.pattern_notes
 
     waveform_step = max(1, math.ceil(len(samples) / 900))
     waveform_times = np.arange(0, len(samples), waveform_step) / sample_rate
@@ -1332,7 +1706,7 @@ def analyze(args: argparse.Namespace) -> dict:
     outputs_dir = str(out_dir) if args.include_local_paths else out_dir.name
 
     data = {
-        "schema_version": "0.2",
+        "schema_version": "0.3",
         "generated_at": generated_at,
         "source_audio": source_audio,
         "input_audio": source_audio,
@@ -1345,6 +1719,7 @@ def analyze(args: argparse.Namespace) -> dict:
             "goal": args.goal,
             "memo_type": args.memo_type,
             "take_label": args.take_label,
+            "pattern_label": args.pattern_label,
             "transcript_source": "manual" if transcript else "none",
         },
         "comparability": {
@@ -1363,6 +1738,7 @@ def analyze(args: argparse.Namespace) -> dict:
         "metrics": metrics,
         "trend_metrics": trend_metrics,
         "progression": progression,
+        "pattern_analysis": pattern_analysis,
         "synthesis": synthesis,
         "pauses": pauses,
         "acoustic_peak_candidates": acoustic_peaks,
@@ -1415,6 +1791,9 @@ def main() -> int:
     parser.add_argument("--goal", default=None, help="Speech goal, such as clarity, pacing, warmth, authority, or storytelling")
     parser.add_argument("--memo-type", default="voice_memo", help="Recording type, such as voice_memo, narration, presentation, or coaching_take")
     parser.add_argument("--take-label", default=None, help="Human label for this take, such as baseline or retake_after_feedback")
+    parser.add_argument("--pattern-label", default=None, help="Optional label when the clip is a known prosodic pattern exemplar")
+    parser.add_argument("--pattern-notes", default=None, help="Optional operator notes about the known or suspected prosodic pattern")
+    parser.add_argument("--patterns", action="store_true", help="Make pattern discovery intent explicit; pattern analysis is generated by default")
     parser.add_argument("--recorded-at", default=None, help="ISO-8601 recording timestamp, if known")
     parser.add_argument("--history", help="Optional JSONL file to append compact trend records")
     parser.add_argument("--share-safe", action="store_true", help="Omit embedded audio and delete audio.wav from the output folder")
