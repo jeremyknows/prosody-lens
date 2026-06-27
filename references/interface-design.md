@@ -10,6 +10,9 @@ for speech analysis.
   click-to-seek charts, synced playhead, and readable time labels.
 - Favor a calm editorial/workbench feel over a technical dashboard. The report
   should be comfortable to share with a non-technical collaborator.
+- Include a low-text visual snapshot for stakeholder review. It should stand on
+  its own as an image: title, pitch, loudness, waveform, pause bands, time axis,
+  and top pattern cards.
 - Use cards only for individual metrics, summaries, or controls. Do not nest
   cards inside cards.
 - Keep controls tactile: 40px minimum target height, clear hover/active states,
@@ -107,6 +110,9 @@ Required controls for interactive reports:
 - Pattern Review Workbench controls when pattern candidates exist:
   review-candidate buttons, decision segmented control, analyst label, pattern
   ID, notes, copy JSON, and download JSON
+- Visual-only controls:
+  `Visual only` toggle, `Download image` button, and local PNG export from the
+  embedded SVG visual snapshot
 
 Buttons should use:
 
@@ -155,5 +161,7 @@ Before sharing an HTML artifact, verify:
 - Pause/peak toggles work.
 - Pattern Review Workbench selects candidates, updates the decision state, and
   exports valid JSON without layout overflow.
+- Visual only hides word-heavy sections while preserving charts/pattern visuals.
+- Download image exports a non-empty PNG locally from the visual snapshot.
 - Desktop and mobile layouts have no incoherent overlap.
 - Browser console has no errors.

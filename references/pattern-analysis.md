@@ -135,9 +135,11 @@ Show more than the waveform. Good pattern artifacts can include:
    exemplars, with score, label, and click-to-seek.
 5. **Pattern Review Workbench** — approve/reject/rename candidates, add notes,
    and export JSON for the library update handoff.
-6. **Future Recurrence Matrix** — a heatmap of similar contour windows. Useful
+6. **Visual Snapshot** — a low-text SVG/PNG export with pitch, loudness,
+   waveform, pauses, time axis, and top pattern cards for stakeholder review.
+7. **Future Recurrence Matrix** — a heatmap of similar contour windows. Useful
    once the project needs stronger repeated-pattern discovery.
-7. **Future Aligned Transcript Lane** — words/phonemes under the contour. This
+8. **Future Aligned Transcript Lane** — words/phonemes under the contour. This
    needs WhisperX or Montreal Forced Aligner.
 
 ## Current Local Method
@@ -164,6 +166,7 @@ The local v0.6 method:
    approved examples in a JSON pattern library.
 10. Expose a static review workbench so an analyst can approve/reject/rename a
     candidate and export the exact JSON handoff.
+11. Generate a visual snapshot SVG and local PNG export for low-text review.
 
 This is intentionally conservative. It is a discovery and visualization aid, not
 a final speech-science classifier.

@@ -25,7 +25,10 @@ Score each item yes/no:
 11. If pattern candidates exist, the HTML report includes a Pattern Review
     Workbench that selects candidates and exports valid JSON with `signature`,
     `sequence`, review decision, label, notes, and `suggested_cli`.
+12. The HTML report includes a Visual only toggle and Download image button; the
+    toggle hides word-heavy sections and the image export produces a non-empty
+    PNG from the visual snapshot.
 
-Passing threshold for publish-quality outputs: 10/11, with items 1, 2, 4, 8, 9,
-10, and 11
+Passing threshold for publish-quality outputs: 11/12, with items 1, 2, 4, 8, 9,
+10, 11, and 12
 required.

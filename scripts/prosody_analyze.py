@@ -2112,6 +2112,253 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
 })();
 """
 
+    def visual_safe_number(value: object, fallback: float = 0.0) -> float:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return fallback
+        return number if math.isfinite(number) else fallback
+
+    def visual_series_points(
+        series: list[tuple[float, float | None]],
+        x: float,
+        y: float,
+        w: float,
+        h: float,
+        ymin: float | None = None,
+        ymax: float | None = None,
+    ) -> str:
+        valid = [(visual_safe_number(t), visual_safe_number(v)) for t, v in series if v is not None and math.isfinite(float(v))]
+        if not valid:
+            return ""
+        t_min = 0.0
+        t_max = max(duration, max(t for t, _ in valid), 1.0)
+        values = [v for _, v in valid]
+        v_min = min(values) if ymin is None else ymin
+        v_max = max(values) if ymax is None else ymax
+        if abs(v_max - v_min) < 1e-9:
+            v_max = v_min + 1.0
+        coords = []
+        for t, v in valid:
+            px = x + w * max(0.0, min(1.0, (t - t_min) / (t_max - t_min)))
+            py = y + h - h * max(0.0, min(1.0, (v - v_min) / (v_max - v_min)))
+            coords.append(f"{px:.1f},{py:.1f}")
+        return " ".join(coords)
+
+    def visual_pause_bands(x: float, y: float, w: float, h: float) -> str:
+        if duration <= 0:
+            return ""
+        bands = []
+        for pause in pauses[:16]:
+            px = x + w * (visual_safe_number(pause.get("start")) / duration)
+            pw = max(2.0, w * (visual_safe_number(pause.get("duration")) / duration))
+            bands.append(f'<rect x="{px:.1f}" y="{y:.1f}" width="{pw:.1f}" height="{h:.1f}" fill="#f3cf7a" opacity="0.36" />')
+            if pause.get("duration", 0) >= 0.45:
+                bands.append(f'<line x1="{px + pw / 2:.1f}" y1="{y - 18:.1f}" x2="{px + pw / 2:.1f}" y2="{y + h:.1f}" stroke="#c88b16" stroke-width="1.2" stroke-dasharray="5 6" opacity="0.85" />')
+        return "\n".join(bands)
+
+    def visual_waveform_bars(x: float, y: float, w: float, h: float) -> str:
+        valid = [(visual_safe_number(t), abs(visual_safe_number(v))) for t, v in waveform if v is not None]
+        if not valid or duration <= 0:
+            return ""
+        step = max(1, math.ceil(len(valid) / 220))
+        mid = y + h / 2
+        bars = []
+        for t, amp in valid[::step]:
+            px = x + w * max(0.0, min(1.0, t / duration))
+            bar_h = max(1.0, min(h / 2, amp * (h / 2)))
+            bars.append(f'<line x1="{px:.1f}" y1="{mid - bar_h:.1f}" x2="{px:.1f}" y2="{mid + bar_h:.1f}" stroke="#9a9a94" stroke-width="1.2" opacity="0.58" />')
+        return "\n".join(bars)
+
+    def visual_pattern_curve(candidate: dict, x: float, y: float, w: float, h: float) -> str:
+        points = candidate.get("pitch_points_st") or []
+        usable = [visual_safe_number(value) for value in points if value is not None]
+        if len(usable) < 2:
+            return ""
+        v_min = min(usable)
+        v_max = max(usable)
+        if abs(v_max - v_min) < 1e-9:
+            v_max = v_min + 1.0
+        coords = []
+        for index, value in enumerate(usable):
+            px = x + w * (index / max(1, len(usable) - 1))
+            py = y + h - h * ((value - v_min) / (v_max - v_min))
+            coords.append(f"{px:.1f},{py:.1f}")
+        return " ".join(coords)
+
+    def visual_snapshot_svg() -> str:
+        primary = patterns[0] if patterns else {}
+        primary_label = str(primary.get("label") or "Prosody Snapshot").title()
+        pitch_points = visual_series_points(pitch, 245, 205, 1070, 122)
+        energy_points = visual_series_points(energy, 245, 370, 1070, 118)
+        waveform_bars = visual_waveform_bars(245, 540, 1070, 115)
+        pause_bands = visual_pause_bands(245, 190, 1070, 470)
+        energy_area = ""
+        if energy_points:
+            baseline = 488
+            energy_area = f'<polygon points="245,{baseline} {energy_points} 1315,{baseline}" fill="url(#energyFade)" opacity="0.7" />'
+        pattern_tiles = []
+        tile_labels = ["This pattern", "Related", "Related"]
+        for index, candidate in enumerate(patterns[:3]):
+            tx = 48 + index * 466
+            ty = 705
+            selected = index == 0
+            stroke = "#063f4b" if selected else "#dfc48a"
+            width_attr = "3" if selected else "2"
+            curve = visual_pattern_curve(candidate, tx + 28, ty + 42, 134, 104)
+            card_title = html.escape(str(candidate.get("label") or "Contour").title())
+            card_meta = html.escape(f"#{candidate.get('rank')} {fmt_time(candidate.get('start'))}")
+            ribbon = (
+                f'<path d="M190 {ty - 2} L342 {ty - 2} L323 {ty + 36} L209 {ty + 36} Z" fill="#e53546" />'
+                f'<text x="266" y="{ty + 23}" class="visual-ribbon" text-anchor="middle">THIS PATTERN</text>'
+            ) if selected else ""
+            pattern_tiles.append(
+                f'<g>'
+                f'<rect x="{tx}" y="{ty}" width="420" height="146" rx="18" fill="#fffdf5" stroke="{stroke}" stroke-width="{width_attr}" />'
+                f'{ribbon}'
+                f'<circle cx="{tx + 95}" cy="{ty + 79}" r="58" fill="#f8f0dc" stroke="#d6c6a3" />'
+                f'<line x1="{tx + 43}" y1="{ty + 100}" x2="{tx + 147}" y2="{ty + 100}" stroke="#8aa0a2" stroke-width="1.2" stroke-dasharray="5 5" />'
+                f'<polyline fill="none" stroke="#064a56" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" points="{curve}" />'
+                f'<text x="{tx + 180}" y="{ty + 48}" class="visual-card-kicker">{html.escape(tile_labels[index])}</text>'
+                f'<text x="{tx + 180}" y="{ty + 82}" class="visual-card-title">{card_title}</text>'
+                f'<text x="{tx + 180}" y="{ty + 116}" class="visual-card-meta">{card_meta}</text>'
+                f'</g>'
+            )
+        return f"""
+<svg id="visualSnapshotSvg" class="visual-snapshot-svg" viewBox="0 0 1440 900" role="img" aria-label="Visual prosody snapshot" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="paperGlow" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#fffdf5" />
+      <stop offset="100%" stop-color="#f6ecd5" />
+    </linearGradient>
+    <linearGradient id="energyFade" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#e53546" stop-opacity="0.48" />
+      <stop offset="100%" stop-color="#e53546" stop-opacity="0" />
+    </linearGradient>
+    <style>
+      .visual-eyebrow {{ fill: #063f4b; font: 800 20px Avenir Next, Trebuchet MS, sans-serif; letter-spacing: 7px; }}
+      .visual-title {{ fill: #063f4b; font: 800 72px Georgia, Times New Roman, serif; }}
+      .visual-sub {{ fill: #12313a; font: 22px Avenir Next, Trebuchet MS, sans-serif; }}
+      .visual-label {{ fill: #12313a; font: 800 18px Avenir Next, Trebuchet MS, sans-serif; letter-spacing: 1px; }}
+      .visual-side {{ fill: #12313a; font: 800 19px Avenir Next, Trebuchet MS, sans-serif; }}
+      .visual-axis {{ fill: #12313a; font: 18px Avenir Next, Trebuchet MS, sans-serif; }}
+      .visual-ribbon {{ fill: #fffdf5; font: 800 14px Avenir Next, Trebuchet MS, sans-serif; letter-spacing: 1px; }}
+      .visual-card-kicker {{ fill: #c28a14; font: 800 13px Avenir Next, Trebuchet MS, sans-serif; letter-spacing: 2px; text-transform: uppercase; }}
+      .visual-card-title {{ fill: #063f4b; font: 800 27px Georgia, Times New Roman, serif; }}
+      .visual-card-meta {{ fill: #12313a; font: 18px Avenir Next, Trebuchet MS, sans-serif; }}
+    </style>
+  </defs>
+  <rect width="1440" height="900" fill="url(#paperGlow)" />
+  <text x="42" y="48" class="visual-eyebrow">PROSODIC PATTERN MAP</text>
+  <text x="42" y="122" class="visual-title">{html.escape(primary_label)}</text>
+  <text x="46" y="160" class="visual-sub">Pitch, loudness, pauses, and waveform shape from the selected recording.</text>
+  <rect x="975" y="54" width="395" height="92" rx="18" fill="none" stroke="#063f4b" stroke-width="2" />
+  <circle cx="1030" cy="100" r="31" fill="none" stroke="#063f4b" stroke-width="3" />
+  <path d="M1008 102 C1018 74,1027 74,1036 102 S1055 130,1063 96" fill="none" stroke="#063f4b" stroke-width="4" stroke-linecap="round" />
+  <text x="1082" y="96" class="visual-sub">Visual-only snapshot</text>
+  <text x="1082" y="124" class="visual-axis">{html.escape(fmt_time(duration))} total</text>
+  <text x="104" y="256" class="visual-side">PITCH</text>
+  <text x="100" y="420" class="visual-side" fill="#e53546">LOUDNESS</text>
+  <text x="85" y="590" class="visual-side" fill="#6f7771">WAVEFORM</text>
+  <text x="205" y="230" class="visual-axis">High</text>
+  <text x="210" y="324" class="visual-axis">Low</text>
+  <text x="205" y="386" class="visual-axis" fill="#e53546">Loud</text>
+  <text x="210" y="482" class="visual-axis" fill="#e53546">Soft</text>
+  <line x1="245" y1="205" x2="1315" y2="205" stroke="#d8cdbb" stroke-dasharray="6 5" />
+  <line x1="245" y1="327" x2="1315" y2="327" stroke="#d8cdbb" stroke-dasharray="6 5" />
+  <line x1="245" y1="488" x2="1315" y2="488" stroke="#dfb1a9" />
+  <line x1="245" y1="598" x2="1315" y2="598" stroke="#d0c7b8" />
+  {pause_bands}
+  {energy_area}
+  <polyline fill="none" stroke="#064a56" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" points="{pitch_points}" />
+  <polyline fill="none" stroke="#e53546" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" points="{energy_points}" />
+  {waveform_bars}
+  <line x1="245" y1="675" x2="1315" y2="675" stroke="#064a56" stroke-width="3" />
+  <polygon points="1315,675 1298,665 1298,685" fill="#064a56" />
+  <text x="245" y="703" class="visual-axis">0</text>
+  <text x="1272" y="703" class="visual-axis">{html.escape(fmt_time(duration))}</text>
+  <text x="713" y="703" class="visual-label">TIME</text>
+  {''.join(pattern_tiles)}
+</svg>
+"""
+
+    visual_snapshot = visual_snapshot_svg()
+    visual_script = r"""
+(function () {
+  const visualToggle = document.getElementById("visualOnlyToggle");
+  const downloadButton = document.getElementById("downloadVisualImage");
+  const visualStatus = document.getElementById("visualDownloadStatus");
+
+  function setVisualStatus(message) {
+    if (!visualStatus) return;
+    visualStatus.textContent = message;
+    window.clearTimeout(setVisualStatus.timer);
+    setVisualStatus.timer = window.setTimeout(() => { visualStatus.textContent = ""; }, 2400);
+  }
+
+  function setVisualOnly(active) {
+    document.body.classList.toggle("visual-only", active);
+    if (!visualToggle) return;
+    visualToggle.classList.toggle("active", active);
+    visualToggle.setAttribute("aria-pressed", active ? "true" : "false");
+    visualToggle.textContent = active ? "Full view" : "Visual only";
+  }
+
+  function downloadBlob(blob, filename) {
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(link.href), 500);
+  }
+
+  async function exportVisualPngBlob() {
+    const svg = document.getElementById("visualSnapshotSvg");
+    if (!svg) throw new Error("visual snapshot missing");
+    const source = new XMLSerializer().serializeToString(svg);
+    const svgBlob = new Blob([source], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(svgBlob);
+    try {
+      const image = new Image();
+      image.decoding = "async";
+      image.src = url;
+      await image.decode();
+      const viewBox = svg.viewBox.baseVal;
+      const scale = 2;
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(viewBox.width * scale);
+      canvas.height = Math.round(viewBox.height * scale);
+      const context = canvas.getContext("2d");
+      context.fillStyle = "#fef9ec";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      return await new Promise((resolve, reject) => {
+        canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("png export failed")), "image/png", 0.96);
+      });
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  async function downloadVisualImage() {
+    try {
+      setVisualStatus("Preparing image");
+      const blob = await exportVisualPngBlob();
+      downloadBlob(blob, "prosody-visual-snapshot.png");
+      setVisualStatus("Image downloaded");
+    } catch (error) {
+      setVisualStatus("Image export failed");
+    }
+  }
+
+  window.prosodyExportVisualPng = exportVisualPngBlob;
+  if (visualToggle) visualToggle.addEventListener("click", () => setVisualOnly(!document.body.classList.contains("visual-only")));
+  if (downloadButton) downloadButton.addEventListener("click", downloadVisualImage);
+})();
+"""
+
     if include_audio:
         audio_src, audio_type = audio_data_uri(playback_path)
         audio_block = (
@@ -2208,6 +2455,16 @@ audio {{ filter: drop-shadow(0 8px 22px rgba(23, 44, 53, 0.12)); }}
 .control-panel input[type="number"] {{ width: 78px; min-height: 40px; border: 0; border-radius: 10px; background: rgba(254, 249, 236, 0.1); color: #f8fafc; padding: 8px; font: inherit; box-shadow: inset 0 0 0 1px rgba(254,249,236,0.17); }}
 .control-panel label {{ display: inline-flex; align-items: center; gap: 6px; }}
 .control-label, #timeReadout, #activeMoment {{ color: rgba(254, 249, 236, 0.76); font-size: 13px; font-variant-numeric: tabular-nums; }}
+.view-toolbar {{ display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 16px 0 22px; }}
+.view-toolbar button {{ appearance: none; min-height: 42px; border: 0; border-radius: 10px; background: var(--teal); color: var(--paper); padding: 9px 14px; cursor: pointer; font: inherit; font-weight: 800; box-shadow: var(--shadow-border); transition-property: transform, background-color, box-shadow, color; transition-duration: 150ms; transition-timing-function: cubic-bezier(0.2, 0, 0, 1); }}
+.view-toolbar button:hover, .view-toolbar button.active {{ background: var(--accent); color: white; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18), 0 8px 18px -12px rgba(229,53,70,0.9); }}
+.view-toolbar button:active {{ transform: scale(0.96); }}
+#visualDownloadStatus {{ min-height: 20px; }}
+.visual-snapshot-frame {{ background: var(--surface); box-shadow: var(--shadow-border); border-radius: 18px; padding: 10px; margin: 12px 0 22px; overflow: hidden; }}
+.visual-snapshot-svg {{ width: 100%; height: auto; border-radius: 12px; }}
+body.visual-only .word-heavy, body.visual-only .pattern-card p, body.visual-only .review-pick, body.visual-only .notice.warn, body.visual-only .track .caption {{ display: none !important; }}
+body.visual-only main {{ max-width: 1180px; }}
+body.visual-only .report-hero {{ margin-bottom: 12px; }}
 .cards {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 20px 0; }}
 .card {{ background: var(--surface); box-shadow: var(--shadow-border); border-radius: 16px; padding: 15px; transition-property: box-shadow, transform; transition-duration: 160ms; transition-timing-function: cubic-bezier(0.2, 0, 0, 1); }}
 .card:hover, .summary:hover, .track:hover {{ box-shadow: var(--shadow-hover); }}
@@ -2268,14 +2525,27 @@ code {{ background: var(--teal-soft); padding: 2px 5px; border-radius: 5px; }}
 </header>
 {audio_block}
 {controls_block}
+<div class="view-toolbar" aria-label="Report view and export controls">
+  <button type="button" id="visualOnlyToggle" aria-pressed="false">Visual only</button>
+  <button type="button" id="downloadVisualImage">Download image</button>
+  <span id="visualDownloadStatus" class="caption" role="status"></span>
+</div>
 
+<section class="visual-priority">
+<h2>Visual Snapshot</h2>
+<div class="visual-snapshot-frame">{visual_snapshot}</div>
+</section>
+
+<section class="word-heavy">
 <h2>Delivery Summary</h2>
 <div class="summary"><ul>{summary_items}</ul></div>
 
 <h2>Listen First</h2>
 <div class="summary"><ul>{listen_items}</ul></div>
+</section>
 
 <h2>Pattern Lens</h2>
+<div class="word-heavy">
 <div class="summary"><ul>
   <li><strong>Summary:</strong> {html.escape(pattern_analysis.get('summary', 'Pattern analysis unavailable.'))}</li>
   <li><strong>Known label:</strong> {html.escape(str(pattern_analysis.get('known_pattern_label') or 'none supplied'))}</li>
@@ -2283,9 +2553,13 @@ code {{ background: var(--teal-soft); padding: 2px 5px; border-radius: 5px; }}
   {saved_line}
   <li><strong>Read this as:</strong> candidate contour shapes derived from pitch, loudness, and pause boundaries; not confirmed accent or phonology labels.</li>
 </ul></div>
+</div>
 <div class="pattern-grid">{pattern_cards}</div>
+<section class="word-heavy">
 {review_workbench}
+</section>
 
+<section class="word-heavy">
 <h2>Pattern Library Matches</h2>
 <table>
 <thead><tr><th>Candidate</th><th>Span</th><th>Candidate Contour</th><th>Library Pattern</th><th>Score</th><th>Example</th></tr></thead>
@@ -2293,6 +2567,7 @@ code {{ background: var(--teal-soft); padding: 2px 5px; border-radius: 5px; }}
 </table>
 
 <div class="cards">{cards}</div>
+</section>
 
 <h2>Waveform</h2>
 <div class="track">
@@ -2330,6 +2605,7 @@ code {{ background: var(--teal-soft); padding: 2px 5px; border-radius: 5px; }}
 <div class="caption">Gaps indicate unvoiced or low-confidence pitch frames.</div>
 </div>
 
+<section class="word-heavy">
 <h2>Progression Snapshot</h2>
 <table>
 <thead><tr><th>Segment</th><th>Pause Ratio</th><th>Median Intensity</th><th>Pitch Variety</th><th>Peaks</th></tr></thead>
@@ -2352,6 +2628,7 @@ code {{ background: var(--teal-soft); padding: 2px 5px; border-radius: 5px; }}
 <p>Pitch method: {html.escape(pitch_method_label)}. Intensity method: {html.escape(intensity_method_label)}.
 Use word-level alignment for stronger phonetic analysis. Acoustic peaks are not
 confirmed emphasized words. Do not treat this as clinical or diagnostic output.</p>
+</section>
 </main>
 <div id="chartTip" class="chart-tip" hidden></div>
 <script type="application/json" id="patternReviewData">{review_json}</script>
@@ -2612,6 +2889,9 @@ updatePlayhead();
 </script>
 <script>
 {review_script}
+</script>
+<script>
+{visual_script}
 </script>
 </body>
 </html>

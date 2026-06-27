@@ -60,6 +60,12 @@
       "prompt": "Open the report, approve candidate #2 as a rise-fall focus arc, add a note, and export the review JSON.",
       "expected_output": "Uses the HTML Pattern Review Workbench, selects candidate #2, sets decision to approved, preserves the analyst label and notes, exports valid JSON with source_audio, candidate rank, signature, sequence, library matches when present, and a suggested_cli using --save-pattern-rank 2.",
       "files": ["review-pattern-clip.ogg"]
+    },
+    {
+      "id": 11,
+      "prompt": "Hayley does not need all the words. Show the visual-only report and download just the image.",
+      "expected_output": "Uses report.html controls to enable Visual only mode, hides word-heavy summaries/tables/review text, keeps the visual snapshot and charts visible, and verifies Download image exports a non-empty PNG generated locally from the embedded SVG.",
+      "files": ["stakeholder-pattern-clip.ogg"]
     }
   ]
 }

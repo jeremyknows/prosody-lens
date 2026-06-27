@@ -98,6 +98,7 @@ Recommended JSON/report fields:
 
 Recommended v1 visual report:
 - audio player
+- low-text visual snapshot with local PNG download for stakeholder review
 - waveform track
 - pitch contour track
 - intensity contour track
@@ -107,6 +108,7 @@ Recommended v1 visual report:
 - "listen first" acoustic peak moments
 - progression snapshot
 - pattern contour cards and motif table
+- visual-only toggle for hiding word-heavy sections
 - pattern library match table when `--pattern-library` is supplied
 
 Recommended v2:
