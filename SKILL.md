@@ -308,10 +308,10 @@ Default to local-only analysis. Do not call paid or pay-as-you-go APIs without
 explicit operator approval.
 
 Groq Whisper can be used as an optional transcription helper when an existing
-free/available Groq key is configured, but it is not required for v0 prosody
-metrics. If Groq is unavailable, run the bundled analyzer anyway and report that
-word-level emphasis and speaking-rate metrics need transcript/alignment to
-improve.
+free/available Groq key is configured, but it is not required for the bundled
+prosody metrics. If Groq is unavailable, run the bundled analyzer anyway and
+report that word-level emphasis and speaking-rate metrics need
+transcript/alignment to improve.
 
 Before relying on any external API, get explicit per-run approval for this file,
 then verify the current free tier, file-size limits, rate limits, and

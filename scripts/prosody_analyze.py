@@ -630,7 +630,7 @@ def save_pattern_exemplar(
         pattern.setdefault("examples", [])
         action = "updated"
 
-    example_seed = f"{stable_id}:{source_audio}:{selected.get('start')}:{selected.get('end')}:{generated_at}"
+    example_seed = f"{stable_id}:{source_audio}:{selected.get('start')}:{selected.get('end')}"
     example = {
         "example_id": hashlib.sha1(example_seed.encode("utf-8")).hexdigest()[:12],
         "created_at": generated_at,
