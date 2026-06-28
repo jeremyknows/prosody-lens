@@ -96,6 +96,12 @@
       "prompt": "The visual-only pitch graph is too spiky. Make the pitch line more gradual between the points of interest without changing the analysis.",
       "expected_output": "Keeps raw pitch metrics and JSON time-series available for technical review, but renders Map/Card/Library visual snapshots with a smoothed, downsampled pitch presentation contour and keeps transcript callout dots connected to that smoothed contour.",
       "files": ["stakeholder-pattern-clip.ogg", "stakeholder-pattern-transcript.txt"]
+    },
+    {
+      "id": 17,
+      "prompt": "The words on the visual-only pitch graph are overlapping. Make the callouts readable.",
+      "expected_output": "Uses collision-aware word-card placement in visual snapshots, separates dense labels into alternate lanes, skips labels when no clean slot exists, and verifies generated SVG word-card rectangles do not overlap.",
+      "files": ["dense-transcript-pattern-clip.ogg", "dense-transcript.txt"]
     }
   ]
 }

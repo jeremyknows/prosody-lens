@@ -140,7 +140,8 @@ Show more than the waveform. Good pattern artifacts can include:
    comparison. When a transcript is supplied, sparse words can float above the
    arcs as approximate anchors. Pitch is rendered as a smoothed presentation
    contour in these snapshots so the phrase shape is readable without replacing
-   the raw analysis metrics.
+   the raw analysis metrics; dense word labels are lane-placed or skipped to
+   avoid overlapping cards.
 7. **Future Recurrence Matrix** — a heatmap of similar contour windows. Useful
    once the project needs stronger repeated-pattern discovery.
 8. **Future Aligned Transcript Lane** — words/phonemes under the contour. This

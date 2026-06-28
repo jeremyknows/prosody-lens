@@ -2463,6 +2463,108 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
         nearest = min(valid, key=lambda item: abs(item[0] - t))[1]
         return y + h - h * max(0.0, min(1.0, (nearest - v_min) / (v_max - v_min)))
 
+    def visual_word_card_metrics(word_value: object, mini: bool = False) -> dict | None:
+        raw_word = str(word_value or "").strip()
+        if not raw_word:
+            return None
+        limit = 10 if mini else 13
+        visible_len = min(len(raw_word), limit)
+        card_h = 24 if mini else 32
+        min_w = 56 if mini else 72
+        max_w = 118 if mini else 154
+        char_w = 7.0 if mini else 8.8
+        return {
+            "word": visual_text(raw_word, "", limit),
+            "card_h": card_h,
+            "card_w": max(min_w, min(max_w, 24 + visible_len * char_w)),
+            "dot_r": 4.8 if mini else 6.2,
+            "rx": 8 if mini else 10,
+        }
+
+    def visual_rect_overlaps(rect: tuple[float, float, float, float], rects: list[tuple[float, float, float, float]], pad: float) -> bool:
+        x1, y1, w1, h1 = rect
+        for x2, y2, w2, h2 in rects:
+            if x1 + w1 + pad <= x2:
+                continue
+            if x2 + w2 + pad <= x1:
+                continue
+            if y1 + h1 + pad <= y2:
+                continue
+            if y2 + h2 + pad <= y1:
+                continue
+            return True
+        return False
+
+    def visual_unique_positions(values: list[float]) -> list[float]:
+        result: list[float] = []
+        for value in values:
+            rounded = round(value, 1)
+            if all(abs(rounded - existing) > 1.0 for existing in result):
+                result.append(rounded)
+        return result
+
+    def visual_place_word_card(
+        word_value: object,
+        px: float,
+        py: float,
+        preferred_card_y: float,
+        min_x: float,
+        max_x: float,
+        min_y: float,
+        max_y: float,
+        placed_rects: list[tuple[float, float, float, float]],
+        mini: bool = False,
+    ) -> tuple[float, float, dict] | None:
+        metrics = visual_word_card_metrics(word_value, mini=mini)
+        if not metrics:
+            return None
+        card_h = float(metrics["card_h"])
+        card_w = min(float(metrics["card_w"]), max(1.0, max_x - min_x))
+        metrics["card_w"] = card_w
+        top_limit = max(min_y, max_y - card_h)
+        centered_x = px - card_w / 2
+        x_candidates = visual_unique_positions(
+            [
+                centered_x,
+                px - card_w - 12,
+                px + 12,
+                centered_x - card_w * 0.45,
+                centered_x + card_w * 0.45,
+                min_x,
+                max_x - card_w,
+            ]
+        )
+        y_candidates = visual_unique_positions(
+            [
+                preferred_card_y,
+                py - card_h - 18,
+                py - card_h - 52,
+                py - card_h - 86,
+                py + 18,
+                py + 52,
+                min_y,
+                min_y + card_h + 8,
+                top_limit,
+            ]
+        )
+        candidates: list[tuple[float, float, float]] = []
+        for raw_y in y_candidates:
+            card_y = max(min_y, min(top_limit, raw_y))
+            for raw_x in x_candidates:
+                card_x = max(min_x, min(max_x - card_w, raw_x))
+                dx = abs((card_x + card_w / 2) - px)
+                dy = abs(card_y - preferred_card_y)
+                below_penalty = 18.0 if card_y > py else 0.0
+                edge_penalty = 5.0 if card_x <= min_x + 1 or card_x + card_w >= max_x - 1 else 0.0
+                candidates.append((dx + dy + below_penalty + edge_penalty, card_x, card_y))
+
+        for _, card_x, card_y in sorted(candidates, key=lambda item: item[0]):
+            rect = (card_x, card_y, card_w, card_h)
+            if not visual_rect_overlaps(rect, placed_rects, pad=7.0 if not mini else 4.0):
+                placed_rects.append(rect)
+                return card_x, card_y, metrics
+        return None
+
     def visual_word_callout(
         word_value: object,
         px: float,
@@ -2471,29 +2573,27 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
         min_x: float,
         max_x: float,
         mini: bool = False,
+        card_x: float | None = None,
+        metrics: dict | None = None,
     ) -> str:
-        raw_word = str(word_value or "").strip()
-        if not raw_word:
+        metrics = metrics or visual_word_card_metrics(word_value, mini=mini)
+        if not metrics:
             return ""
-        limit = 10 if mini else 13
-        word = visual_text(raw_word, "", limit)
-        visible_len = min(len(raw_word), limit)
-        card_h = 24 if mini else 32
-        min_w = 56 if mini else 72
-        max_w = 118 if mini else 154
-        char_w = 7.0 if mini else 8.8
-        card_w = max(min_w, min(max_w, 24 + visible_len * char_w))
+        word = str(metrics["word"])
+        card_h = float(metrics["card_h"])
+        card_w = float(metrics["card_w"])
         available_w = max(1.0, max_x - min_x)
         if card_w > available_w:
             card_w = available_w
-        card_x = max(min_x, min(max_x - card_w, px - card_w / 2))
+        if card_x is None:
+            card_x = max(min_x, min(max_x - card_w, px - card_w / 2))
         label_x = card_x + card_w / 2
         connector_y = card_y + card_h
-        dot_r = 4.8 if mini else 6.2
+        dot_r = float(metrics["dot_r"])
         return (
             f'<g class="visual-word-callout">'
             f'<path d="M{px:.1f} {py:.1f} L{label_x:.1f} {connector_y:.1f}" class="visual-word-connector" />'
-            f'<rect x="{card_x:.1f}" y="{card_y:.1f}" width="{card_w:.1f}" height="{card_h:.1f}" rx="{8 if mini else 10}" class="visual-word-card{" mini" if mini else ""}" />'
+            f'<rect x="{card_x:.1f}" y="{card_y:.1f}" width="{card_w:.1f}" height="{card_h:.1f}" rx="{metrics["rx"]}" class="visual-word-card{" mini" if mini else ""}" />'
             f'<circle cx="{px:.1f}" cy="{py:.1f}" r="{dot_r:.1f}" class="visual-word-dot" />'
             f'<text x="{label_x:.1f}" y="{card_y + card_h / 2:.1f}" class="visual-word-label{" mini" if mini else ""}" text-anchor="middle" dominant-baseline="middle">{word}</text>'
             f'</g>'
@@ -2514,6 +2614,7 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
         if not words or end <= start:
             return ""
         labels = []
+        placed_rects: list[tuple[float, float, float, float]] = []
         for index, item in enumerate(words):
             t = visual_safe_number(item.get("time"))
             px = x + w * max(0.0, min(1.0, (t - start) / (end - start)))
@@ -2521,8 +2622,20 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
             py = visual_series_y_at(series, t, y, h)
             card_y = py - 50 - ((index % 3) * 17)
             lower_bound = max(18.0, y - 62) if min_card_y is None else min_card_y
-            card_y = max(lower_bound, min(y + h - 40, card_y))
-            labels.append(visual_word_callout(item.get("word"), px, py, card_y, x + 8, x + w - 8))
+            placement = visual_place_word_card(
+                item.get("word"),
+                px,
+                py,
+                card_y,
+                x + 8,
+                x + w - 8,
+                lower_bound,
+                y + h - 8,
+                placed_rects,
+            )
+            if placement:
+                card_x, placed_y, metrics = placement
+                labels.append(visual_word_callout(item.get("word"), px, py, placed_y, x + 8, x + w - 8, card_x=card_x, metrics=metrics))
         return "\n".join(labels)
 
     def visual_pattern_word_overlay(candidate: dict, x: float, y: float, w: float, h: float, max_words: int) -> str:
@@ -2537,6 +2650,7 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
         if abs(v_max - v_min) < 1e-9:
             v_max = v_min + 1.0
         labels = []
+        placed_rects: list[tuple[float, float, float, float]] = []
         for index, item in enumerate(words):
             ratio = max(0.0, min(1.0, (visual_safe_number(item.get("time")) - start) / (end - start)))
             point_index = min(len(points) - 1, max(0, int(round(ratio * (len(points) - 1)))))
@@ -2544,8 +2658,21 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
             px = max(x + 18, min(x + w - 18, px))
             py = y + h - h * ((points[point_index] - v_min) / (v_max - v_min))
             card_y = py - 35 - ((index % 2) * 12)
-            card_y = max(max(8.0, y - 22), min(y + h - 28, card_y))
-            labels.append(visual_word_callout(item.get("word"), px, py, card_y, x + 2, x + w - 2, mini=True))
+            placement = visual_place_word_card(
+                item.get("word"),
+                px,
+                py,
+                card_y,
+                x + 2,
+                x + w - 2,
+                max(8.0, y - 22),
+                y + h - 2,
+                placed_rects,
+                mini=True,
+            )
+            if placement:
+                card_x, placed_y, metrics = placement
+                labels.append(visual_word_callout(item.get("word"), px, py, placed_y, x + 2, x + w - 2, mini=True, card_x=card_x, metrics=metrics))
         return "\n".join(labels)
 
     def visual_snapshot_map_svg() -> str:
@@ -2667,7 +2794,7 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
         pause_bands = visual_pause_bands(108, 540, 864, 386)
         pattern_curve = visual_pattern_curve(primary, 650, 160, 270, 210)
         pattern_words = visual_pattern_word_overlay(primary, 650, 160, 270, 210, 4)
-        word_overlay = visual_word_overlay(108, 560, 864, 190, 0.0, duration, visual_pitch, 9)
+        word_overlay = visual_word_overlay(108, 560, 864, 190, 0.0, duration, visual_pitch, 9, min_card_y=516.0)
         energy_area = ""
         if energy_points:
             baseline = 914
@@ -2721,7 +2848,7 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
     <text x="740" y="427" class="card-stat-label">PATTERNS</text>
     <text x="740" y="462" class="card-stat-value">{len(patterns)}</text>
   </g>
-  <text x="108" y="502" class="card-label">PITCH CONTOUR</text>
+  <text x="108" y="508" class="card-label">PITCH CONTOUR</text>
   <text x="108" y="842" class="card-label" fill="#e53546">LOUDNESS SHAPE</text>
   <text x="108" y="1068" class="card-label" fill="#6f7771">WAVEFORM</text>
   <line x1="108" y1="560" x2="972" y2="560" stroke="#d8cdbb" stroke-dasharray="8 8" />

@@ -103,6 +103,8 @@ Recommended v1 visual report:
   stakeholder review
 - sparse transcript word callouts above inflection arcs when a transcript is
   supplied, using a dot on the contour, connector line, and translucent label card
+- collision-aware callout placement so dense words do not overlap in exported
+  Map/Card/Library snapshots
 - smoothed/downsampled pitch presentation contours in visual snapshots, while
   raw pitch traces remain available for metrics and JSON review
 - waveform track

@@ -16,6 +16,8 @@ for speech analysis.
 - When a transcript is supplied, show sparse words as dot-on-arc,
   connector-line, translucent-card callouts above inflection arcs. Treat them as
   approximate visual anchors, not forced-aligned word timing.
+- Word callout cards must not overlap each other. Prefer fewer labels, lane
+  shifts, or skipped low-priority words over cluttered cards.
 - In low-text Map/Card/Library snapshots, draw pitch as a smoothed presentation
   contour. Keep raw frame-level pitch data available for metrics and JSON, but
   do not let jitter or octave-tracking artifacts dominate the stakeholder image.
@@ -173,6 +175,7 @@ Before sharing an HTML artifact, verify:
 - Map/Card/Library layout switching updates the visible visual snapshot.
 - Transcript word callouts render above pitch/contour arcs when transcript data
   is available, with readable card opacity and connectors back to the contour.
+- Word callout cards do not overlap each other in Map/Card/Library snapshots.
 - Visual-only pitch contours are smoothed/downsampled enough to make phrase
   shape readable without changing raw analysis metrics.
 - Download image exports a non-empty PNG locally from the active visual

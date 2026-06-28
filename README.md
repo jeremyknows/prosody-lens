@@ -25,6 +25,8 @@ for the bundled analyzer.
   callouts, and Download image for low-text stakeholder sharing.
 - Smooths visual-only pitch contours for shareable images while preserving raw
   pitch data for metrics and JSON review.
+- Uses collision-aware word callout placement so labels stay readable in dense
+  visual-only cards.
 - Generates `prosody.json`, `report.md`, and an interactive `report.html`.
 - Embeds browser-friendly MP3 playback in the HTML by default.
 - Supports repeated-run trend records with `--history`.
@@ -233,7 +235,8 @@ SVG, using the actual waveform, pitch, loudness, pause bands, and top pattern
 contours. The shareable pitch line is smoothed and downsampled as a presentation
 contour so the phrase shape is readable instead of dominated by raw frame-level
 pitch jitter. If a transcript was supplied, sparse transcript words render as
-dot-on-arc, connector-line, translucent-card callouts; use forced alignment for
+dot-on-arc, connector-line, translucent-card callouts. Dense labels are placed
+in separate lanes or skipped if there is no clean slot; use forced alignment for
 exact word timing.
 
 If a selected file has a long quiet head or tail, Prosody Lens focuses the

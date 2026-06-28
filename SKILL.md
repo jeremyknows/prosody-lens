@@ -11,7 +11,7 @@ compatibility: >
   Forced Aligner, openSMILE, librosa, Plotly.
 metadata:
   author: jeremyknows
-  version: "0.11.0"
+  version: "0.12.0"
   category: Audio Analysis & Visualization
   status: EXPERIMENTAL
   last_improved: "2026-06-28"
@@ -73,7 +73,7 @@ python3 -m pip install -r requirements.txt -r requirements-praat.txt
 |------|------------|--------|
 | Analyze | "analyze this voice memo" / `--analyze` | Markdown report + JSON metrics |
 | Visualize | "visualize the prosody" / `--viz` | Interactive HTML report + Markdown; quiet-edge auto-focus when needed |
-| Visual Export | "visual only" / "download just the image" | Toggle a low-text visual view, choose Map/Card/Library layouts, show sparse transcript words as dot/connector/card callouts over smoothed presentation contours when available, and export the active PNG |
+| Visual Export | "visual only" / "download just the image" | Toggle a low-text visual view, choose Map/Card/Library layouts, show sparse non-overlapping transcript words as dot/connector/card callouts over smoothed presentation contours when available, and export the active PNG |
 | Compare | "compare these two takes" / `--compare` | Run one report per take, then synthesize differences |
 | Progression | "show progression over time" / `--progression` | Append/read trend records and compare stable metrics |
 | Pattern Discovery | "find prosodic patterns" / `--patterns` | Candidate contour patterns, repeat families, and pattern visuals |
@@ -274,6 +274,8 @@ Prefer an interactive HTML report for v1:
 - visual layout selector with `Map`, `Card`, and `Library` views
 - sparse transcript word callouts above inflection arcs when `--transcript` is
   supplied: dot on contour, connector line, and readable translucent word card
+- collision-aware word-card placement that separates dense labels or skips a
+  label when no clean slot is available
 - Visual only toggle that hides word-heavy sections for stakeholder review
 - Download image button that exports the active visual snapshot PNG
 - top "listen first" moments
@@ -389,6 +391,8 @@ For HTML/UI changes, open `report.html` and verify:
 - transcript word callouts render on visual arcs when a transcript is supplied
 - visual-only pitch contours are smooth enough to show phrase shape without
   hiding timing, pauses, or analysis metrics
+- visual word callout cards do not overlap each other in Map/Card/Library
+  snapshots
 - long quiet leading/trailing audio is focused out when it would otherwise squash
   the chart, and `active_audio` records the original/focused durations
 - mobile layout has no horizontal overflow

@@ -41,7 +41,10 @@ Score each item yes/no:
 16. Visual-only pitch contours are smoothed/downsampled presentation shapes, so
     stakeholder images show readable phrase movement without altering raw
     pitch metrics or JSON time-series data.
+17. Transcript word callout cards in visual snapshots do not overlap each other;
+    dense sections use alternate lanes or omit a label instead of cluttering the
+    image.
 
-Passing threshold for publish-quality outputs: 15/16, with items 1, 2, 4, 8, 9,
-10, 11, 12, 13, 14, 15, and 16
+Passing threshold for publish-quality outputs: 16/17, with items 1, 2, 4, 8, 9,
+10, 11, 12, 13, 14, 15, 16, and 17
 required.
