@@ -138,7 +138,9 @@ Show more than the waveform. Good pattern artifacts can include:
 6. **Visual Snapshot** — low-text SVG/PNG exports for stakeholder review:
    `Map` for analysis, `Card` for sharing, and `Library` for pattern
    comparison. When a transcript is supplied, sparse words can float above the
-   arcs as approximate anchors.
+   arcs as approximate anchors. Pitch is rendered as a smoothed presentation
+   contour in these snapshots so the phrase shape is readable without replacing
+   the raw analysis metrics.
 7. **Future Recurrence Matrix** — a heatmap of similar contour windows. Useful
    once the project needs stronger repeated-pattern discovery.
 8. **Future Aligned Transcript Lane** — words/phonemes under the contour. This
@@ -170,9 +172,9 @@ The local v0.9 method:
    approved examples in a JSON pattern library.
 11. Expose a static review workbench so an analyst can approve/reject/rename a
     candidate and export the exact JSON handoff.
-12. Generate selectable Map/Card/Library visual snapshot SVGs with sparse
-    transcript word callouts when available, plus local PNG export for the
-    active layout.
+12. Generate selectable Map/Card/Library visual snapshot SVGs with smoothed
+    presentation pitch contours, sparse transcript word callouts when available,
+    plus local PNG export for the active layout.
 
 This is intentionally conservative. It is a discovery and visualization aid, not
 a final speech-science classifier.

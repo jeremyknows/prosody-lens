@@ -90,6 +90,12 @@
       "prompt": "The audio has four seconds of speech followed by almost a minute of quiet tail. Make the visual use the spoken part, not the dead air.",
       "expected_output": "Uses peak-relative and noise-floor-relative active-audio focus, trims the long quiet tail from the analysis/playback copy, records active_audio original/focused durations and trimmed_trailing_seconds, and renders a visual snapshot where the speech occupies the chart instead of being squeezed into the far left.",
       "files": ["short-speech-long-quiet-tail.mp3"]
+    },
+    {
+      "id": 16,
+      "prompt": "The visual-only pitch graph is too spiky. Make the pitch line more gradual between the points of interest without changing the analysis.",
+      "expected_output": "Keeps raw pitch metrics and JSON time-series available for technical review, but renders Map/Card/Library visual snapshots with a smoothed, downsampled pitch presentation contour and keeps transcript callout dots connected to that smoothed contour.",
+      "files": ["stakeholder-pattern-clip.ogg", "stakeholder-pattern-transcript.txt"]
     }
   ]
 }

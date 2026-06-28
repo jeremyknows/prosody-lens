@@ -11,7 +11,7 @@ compatibility: >
   Forced Aligner, openSMILE, librosa, Plotly.
 metadata:
   author: jeremyknows
-  version: "0.10.0"
+  version: "0.11.0"
   category: Audio Analysis & Visualization
   status: EXPERIMENTAL
   last_improved: "2026-06-28"
@@ -73,7 +73,7 @@ python3 -m pip install -r requirements.txt -r requirements-praat.txt
 |------|------------|--------|
 | Analyze | "analyze this voice memo" / `--analyze` | Markdown report + JSON metrics |
 | Visualize | "visualize the prosody" / `--viz` | Interactive HTML report + Markdown; quiet-edge auto-focus when needed |
-| Visual Export | "visual only" / "download just the image" | Toggle a low-text visual view, choose Map/Card/Library layouts, show sparse transcript words as dot/connector/card callouts over arcs when available, and export the active PNG |
+| Visual Export | "visual only" / "download just the image" | Toggle a low-text visual view, choose Map/Card/Library layouts, show sparse transcript words as dot/connector/card callouts over smoothed presentation contours when available, and export the active PNG |
 | Compare | "compare these two takes" / `--compare` | Run one report per take, then synthesize differences |
 | Progression | "show progression over time" / `--progression` | Append/read trend records and compare stable metrics |
 | Pattern Discovery | "find prosodic patterns" / `--patterns` | Candidate contour patterns, repeat families, and pattern visuals |
@@ -192,6 +192,11 @@ When the user wants fewer words or a shareable visual:
 The PNG export is generated locally from the report's embedded SVG; it does not
 upload audio or call an external screenshot service.
 
+Visual snapshots use a smoothed, downsampled pitch presentation contour so a
+stakeholder can read the delivery shape without raw frame-level pitch jitter.
+The analyzer still keeps raw pitch/time-series data for metrics, JSON, and
+technical review.
+
 ## Report Shape
 
 Use this structure when replying:
@@ -264,6 +269,8 @@ Prefer an interactive HTML report for v1:
   tabular numbers, balanced headings, and tactile control states
 - visual snapshot SVG built from the real waveform, pitch, loudness, pause, and
   top-pattern data
+- smoothed presentation pitch contours in visual snapshots, while preserving raw
+  pitch data for metrics and technical traces
 - visual layout selector with `Map`, `Card`, and `Library` views
 - sparse transcript word callouts above inflection arcs when `--transcript` is
   supplied: dot on contour, connector line, and readable translucent word card
@@ -380,6 +387,8 @@ For HTML/UI changes, open `report.html` and verify:
   image produces a non-empty PNG from the active `Map`, `Card`, or `Library`
   visual snapshot
 - transcript word callouts render on visual arcs when a transcript is supplied
+- visual-only pitch contours are smooth enough to show phrase shape without
+  hiding timing, pauses, or analysis metrics
 - long quiet leading/trailing audio is focused out when it would otherwise squash
   the chart, and `active_audio` records the original/focused durations
 - mobile layout has no horizontal overflow

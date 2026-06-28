@@ -2289,6 +2289,98 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
             coords.append(f"{px:.1f},{py:.1f}")
         return " ".join(coords)
 
+    def visual_presentation_series(
+        series: list[tuple[float, float | None]],
+        max_points: int = 72,
+        smooth_window: int = 9,
+        clip_percentiles: tuple[float, float] = (5.0, 95.0),
+    ) -> list[tuple[float, float]]:
+        valid: list[tuple[float, float]] = []
+        for t, v in series:
+            if v is None:
+                continue
+            t_num = visual_safe_number(t, float("nan"))
+            v_num = visual_safe_number(v, float("nan"))
+            if math.isfinite(t_num) and math.isfinite(v_num):
+                valid.append((t_num, v_num))
+        if len(valid) < 3:
+            return valid
+
+        valid.sort(key=lambda item: item[0])
+        times: list[float] = []
+        values: list[float] = []
+        for t_num, v_num in valid:
+            if times and abs(t_num - times[-1]) < 1e-9:
+                values[-1] = (values[-1] + v_num) / 2.0
+                continue
+            times.append(t_num)
+            values.append(v_num)
+        if len(times) < 3:
+            return list(zip(times, values))
+
+        time_array = np.array(times, dtype=np.float64)
+        value_array = np.array(values, dtype=np.float64)
+        low_pct, high_pct = clip_percentiles
+        if len(value_array) >= 8 and 0.0 <= low_pct < high_pct <= 100.0:
+            low = float(np.percentile(value_array, low_pct))
+            high = float(np.percentile(value_array, high_pct))
+            if math.isfinite(low) and math.isfinite(high) and high > low:
+                value_array = np.clip(value_array, low, high)
+
+        point_count = min(max(8, int(max_points)), len(time_array))
+        sample_times = np.linspace(float(time_array[0]), float(time_array[-1]), point_count)
+        sampled = np.interp(sample_times, time_array, value_array)
+        smoothed = smooth_values(sampled, window=smooth_window)
+        return [(float(t_num), float(v_num)) for t_num, v_num in zip(sample_times, smoothed)]
+
+    def visual_pitch_contour_series(
+        series: list[tuple[float, float | None]],
+        max_points: int = 72,
+        smooth_window: int = 11,
+    ) -> list[tuple[float, float]]:
+        valid: list[tuple[float, float]] = []
+        for t, v in series:
+            if v is None:
+                continue
+            t_num = visual_safe_number(t, float("nan"))
+            hz = visual_safe_number(v, float("nan"))
+            if math.isfinite(t_num) and math.isfinite(hz) and hz > 0:
+                valid.append((t_num, hz))
+        if len(valid) < 3:
+            return valid
+
+        hz_values = np.array([hz for _, hz in valid], dtype=np.float64)
+        median_hz = float(np.median(hz_values[np.isfinite(hz_values)]))
+        if not math.isfinite(median_hz) or median_hz <= 0:
+            return visual_presentation_series(valid, max_points=max_points, smooth_window=smooth_window)
+
+        semitone_series = [
+            (t_num, max(-14.0, min(14.0, 12.0 * math.log2(hz / median_hz))))
+            for t_num, hz in valid
+        ]
+        return visual_presentation_series(
+            semitone_series,
+            max_points=max_points,
+            smooth_window=smooth_window,
+            clip_percentiles=(7.0, 93.0),
+        )
+
+    def visual_contour_values(values: list[float], max_points: int = 18, smooth_window: int = 5) -> list[float]:
+        usable = [visual_safe_number(value, float("nan")) for value in values if value is not None]
+        usable = [value for value in usable if math.isfinite(value)]
+        if len(usable) < 3:
+            return usable
+        source = np.array(usable, dtype=np.float64)
+        if len(source) >= 8:
+            low = float(np.percentile(source, 5.0))
+            high = float(np.percentile(source, 95.0))
+            if math.isfinite(low) and math.isfinite(high) and high > low:
+                source = np.clip(source, low, high)
+        point_count = min(max(6, int(max_points)), len(source))
+        positions = np.linspace(0.0, len(source) - 1, point_count)
+        sampled = np.interp(positions, np.arange(len(source)), source)
+        return [float(value) for value in smooth_values(sampled, window=smooth_window)]
+
     def visual_pause_bands(x: float, y: float, w: float, h: float) -> str:
         if duration <= 0:
             return ""
@@ -2316,7 +2408,7 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
 
     def visual_pattern_curve(candidate: dict, x: float, y: float, w: float, h: float) -> str:
         points = candidate.get("pitch_points_st") or []
-        usable = [visual_safe_number(value) for value in points if value is not None]
+        usable = visual_contour_values(points, max_points=18, smooth_window=5)
         if len(usable) < 2:
             return ""
         v_min = min(usable)
@@ -2401,8 +2493,8 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
         return (
             f'<g class="visual-word-callout">'
             f'<path d="M{px:.1f} {py:.1f} L{label_x:.1f} {connector_y:.1f}" class="visual-word-connector" />'
-            f'<circle cx="{px:.1f}" cy="{py:.1f}" r="{dot_r:.1f}" class="visual-word-dot" />'
             f'<rect x="{card_x:.1f}" y="{card_y:.1f}" width="{card_w:.1f}" height="{card_h:.1f}" rx="{8 if mini else 10}" class="visual-word-card{" mini" if mini else ""}" />'
+            f'<circle cx="{px:.1f}" cy="{py:.1f}" r="{dot_r:.1f}" class="visual-word-dot" />'
             f'<text x="{label_x:.1f}" y="{card_y + card_h / 2:.1f}" class="visual-word-label{" mini" if mini else ""}" text-anchor="middle" dominant-baseline="middle">{word}</text>'
             f'</g>'
         )
@@ -2416,6 +2508,7 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
         end: float,
         series: list[tuple[float, float | None]],
         max_words: int,
+        min_card_y: float | None = None,
     ) -> str:
         words = visual_words_in_span(start, end, max_words)
         if not words or end <= start:
@@ -2427,7 +2520,8 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
             px = max(x + 34, min(x + w - 34, px))
             py = visual_series_y_at(series, t, y, h)
             card_y = py - 50 - ((index % 3) * 17)
-            card_y = max(max(18.0, y - 62), min(y + h - 40, card_y))
+            lower_bound = max(18.0, y - 62) if min_card_y is None else min_card_y
+            card_y = max(lower_bound, min(y + h - 40, card_y))
             labels.append(visual_word_callout(item.get("word"), px, py, card_y, x + 8, x + w - 8))
         return "\n".join(labels)
 
@@ -2435,7 +2529,7 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
         start = visual_safe_number(candidate.get("start"))
         end = visual_safe_number(candidate.get("end"))
         words = visual_words_in_span(start, end, max_words)
-        points = [visual_safe_number(value) for value in (candidate.get("pitch_points_st") or []) if value is not None]
+        points = visual_contour_values(candidate.get("pitch_points_st") or [], max_points=18, smooth_window=5)
         if not words or len(points) < 2 or end <= start:
             return ""
         v_min = min(points)
@@ -2457,11 +2551,13 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
     def visual_snapshot_map_svg() -> str:
         primary = patterns[0] if patterns else {}
         primary_label = str(primary.get("label") or "Prosody Snapshot").title()
-        pitch_points = visual_series_points(pitch, 245, 205, 1070, 122)
-        energy_points = visual_series_points(energy, 245, 370, 1070, 118)
+        visual_pitch = visual_pitch_contour_series(pitch, max_points=68, smooth_window=11)
+        visual_energy = visual_presentation_series(energy, max_points=76, smooth_window=9, clip_percentiles=(4.0, 96.0))
+        pitch_points = visual_series_points(visual_pitch, 245, 205, 1070, 122)
+        energy_points = visual_series_points(visual_energy, 245, 370, 1070, 118)
         waveform_bars = visual_waveform_bars(245, 540, 1070, 115)
         pause_bands = visual_pause_bands(245, 190, 1070, 470)
-        word_overlay = visual_word_overlay(245, 205, 1070, 122, 0.0, duration, pitch, 11)
+        word_overlay = visual_word_overlay(245, 205, 1070, 122, 0.0, duration, visual_pitch, 11, min_card_y=168.0)
         energy_area = ""
         if energy_points:
             baseline = 488
@@ -2563,13 +2659,15 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
     def visual_snapshot_card_svg() -> str:
         primary = patterns[0] if patterns else {}
         primary_label = visual_text(str(primary.get("label") or "Prosody Snapshot").title(), limit=30)
-        pitch_points = visual_series_points(pitch, 108, 560, 864, 190)
-        energy_points = visual_series_points(energy, 108, 782, 864, 132)
+        visual_pitch = visual_pitch_contour_series(pitch, max_points=64, smooth_window=11)
+        visual_energy = visual_presentation_series(energy, max_points=72, smooth_window=9, clip_percentiles=(4.0, 96.0))
+        pitch_points = visual_series_points(visual_pitch, 108, 560, 864, 190)
+        energy_points = visual_series_points(visual_energy, 108, 782, 864, 132)
         waveform_bars = visual_waveform_bars(108, 1008, 864, 118)
         pause_bands = visual_pause_bands(108, 540, 864, 386)
         pattern_curve = visual_pattern_curve(primary, 650, 160, 270, 210)
         pattern_words = visual_pattern_word_overlay(primary, 650, 160, 270, 210, 4)
-        word_overlay = visual_word_overlay(108, 560, 864, 190, 0.0, duration, pitch, 9)
+        word_overlay = visual_word_overlay(108, 560, 864, 190, 0.0, duration, visual_pitch, 9)
         energy_area = ""
         if energy_points:
             baseline = 914
@@ -2623,7 +2721,7 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
     <text x="740" y="427" class="card-stat-label">PATTERNS</text>
     <text x="740" y="462" class="card-stat-value">{len(patterns)}</text>
   </g>
-  <text x="108" y="536" class="card-label">PITCH CONTOUR</text>
+  <text x="108" y="502" class="card-label">PITCH CONTOUR</text>
   <text x="108" y="842" class="card-label" fill="#e53546">LOUDNESS SHAPE</text>
   <text x="108" y="1068" class="card-label" fill="#6f7771">WAVEFORM</text>
   <line x1="108" y1="560" x2="972" y2="560" stroke="#d8cdbb" stroke-dasharray="8 8" />

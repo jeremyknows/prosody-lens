@@ -38,7 +38,10 @@ Score each item yes/no:
     audio window, including mostly silent files where speech is a small fraction
     of the clip; `active_audio` records/discloses original duration, focused
     duration, and trimmed edge seconds.
+16. Visual-only pitch contours are smoothed/downsampled presentation shapes, so
+    stakeholder images show readable phrase movement without altering raw
+    pitch metrics or JSON time-series data.
 
-Passing threshold for publish-quality outputs: 14/15, with items 1, 2, 4, 8, 9,
-10, 11, 12, 13, 14, and 15
+Passing threshold for publish-quality outputs: 15/16, with items 1, 2, 4, 8, 9,
+10, 11, 12, 13, 14, 15, and 16
 required.

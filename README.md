@@ -23,6 +23,8 @@ for the bundled analyzer.
   rejecting, renaming, annotating, and exporting candidate review JSON.
 - Adds Visual only, Map/Card/Library visual layouts, sparse transcript word
   callouts, and Download image for low-text stakeholder sharing.
+- Smooths visual-only pitch contours for shareable images while preserving raw
+  pitch data for metrics and JSON review.
 - Generates `prosody.json`, `report.md`, and an interactive `report.html`.
 - Embeds browser-friendly MP3 playback in the HTML by default.
 - Supports repeated-run trend records with `--history`.
@@ -228,7 +230,9 @@ For stakeholder review, use `Visual only` in `report.html` to hide the word-heav
 sections, choose `Map`, `Card`, or `Library`, then use `Download image` to export
 that active PNG visual snapshot. The image is rendered locally from the embedded
 SVG, using the actual waveform, pitch, loudness, pause bands, and top pattern
-contours. If a transcript was supplied, sparse transcript words render as
+contours. The shareable pitch line is smoothed and downsampled as a presentation
+contour so the phrase shape is readable instead of dominated by raw frame-level
+pitch jitter. If a transcript was supplied, sparse transcript words render as
 dot-on-arc, connector-line, translucent-card callouts; use forced alignment for
 exact word timing.
 
