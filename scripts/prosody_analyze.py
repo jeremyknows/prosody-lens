@@ -75,6 +75,16 @@ def read_wav(wav_path: Path) -> tuple[int, np.ndarray]:
     return sample_rate, samples
 
 
+def write_wav(wav_path: Path, sample_rate: int, samples: np.ndarray) -> None:
+    clipped = np.clip(samples, -1.0, 1.0)
+    pcm = (clipped * 32767.0).astype(np.int16)
+    with wave.open(str(wav_path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(pcm.tobytes())
+
+
 def frame_audio(samples: np.ndarray, sample_rate: int, frame_ms: float, hop_ms: float) -> tuple[np.ndarray, np.ndarray]:
     frame_len = int(sample_rate * frame_ms / 1000.0)
     hop_len = int(sample_rate * hop_ms / 1000.0)
@@ -136,6 +146,74 @@ def contiguous_regions(mask: np.ndarray, times: np.ndarray, hop_s: float, min_du
     return regions
 
 
+def detect_active_audio_window(samples: np.ndarray, sample_rate: int, padding_s: float = 0.75, min_edge_trim_s: float = 2.0) -> dict:
+    original_duration = float(len(samples) / sample_rate) if sample_rate else 0.0
+    base = {
+        "status": "unchanged",
+        "original_duration_seconds": round(original_duration, 3),
+        "analysis_duration_seconds": round(original_duration, 3),
+        "active_start_seconds": 0.0,
+        "active_end_seconds": round(original_duration, 3),
+        "trimmed_leading_seconds": 0.0,
+        "trimmed_trailing_seconds": 0.0,
+        "padding_seconds": padding_s,
+        "threshold_db": None,
+        "method": "frame-energy edge focus",
+    }
+    if sample_rate <= 0 or len(samples) == 0 or original_duration < 4.0:
+        base["status"] = "too_short"
+        return base
+
+    times, frames = frame_audio(samples, sample_rate, frame_ms=50.0, hop_ms=25.0)
+    energy_db = rms_db(frames)
+    finite = energy_db[np.isfinite(energy_db)]
+    if len(finite) < 4:
+        base["status"] = "insufficient_signal"
+        return base
+
+    noise_floor = float(np.percentile(finite, 10))
+    speech_level = float(np.percentile(finite, 90))
+    dynamic_range = speech_level - noise_floor
+    threshold = noise_floor + max(6.0, min(18.0, dynamic_range * 0.35))
+    base["threshold_db"] = round(threshold, 3)
+    base["noise_floor_db"] = round(noise_floor, 3)
+    base["speech_level_db"] = round(speech_level, 3)
+    if dynamic_range < 8.0:
+        base["status"] = "low_dynamic_range"
+        return base
+
+    active_regions = contiguous_regions(energy_db >= threshold, times, hop_s=0.025, min_duration_s=0.18)
+    active_total = sum(float(region["duration"]) for region in active_regions)
+    if active_total < 1.0 or not active_regions:
+        base["status"] = "no_active_audio"
+        return base
+
+    active_start = min(float(region["start"]) for region in active_regions)
+    active_end = max(float(region["end"]) for region in active_regions)
+    focus_start = max(0.0, active_start - padding_s)
+    focus_end = min(original_duration, active_end + padding_s)
+    leading_trim = focus_start
+    trailing_trim = max(0.0, original_duration - focus_end)
+    if leading_trim < min_edge_trim_s and trailing_trim < min_edge_trim_s:
+        return base
+
+    base.update(
+        {
+            "status": "focused",
+            "analysis_duration_seconds": round(max(0.0, focus_end - focus_start), 3),
+            "active_start_seconds": round(focus_start, 3),
+            "active_end_seconds": round(focus_end, 3),
+            "trimmed_leading_seconds": round(leading_trim, 3),
+            "trimmed_trailing_seconds": round(trailing_trim, 3),
+            "active_region_count": len(active_regions),
+            "active_total_seconds": round(active_total, 3),
+            "start_sample": int(round(focus_start * sample_rate)),
+            "end_sample": int(round(focus_end * sample_rate)),
+        }
+    )
+    return base
+
+
 def safe_percentile(values: np.ndarray, pct: float) -> float | None:
     finite = values[np.isfinite(values)]
     if len(finite) == 0:
@@ -168,6 +246,53 @@ def count_words(transcript: str | None) -> int | None:
     if not transcript:
         return None
     return len([w for w in transcript.replace("\n", " ").split(" ") if w.strip()])
+
+
+def transcript_words(transcript: str | None) -> list[str]:
+    if not transcript:
+        return []
+    return re.findall(r"[A-Za-z0-9][A-Za-z0-9'-]*", transcript)
+
+
+def speech_intervals(duration: float, pauses: list[dict[str, float]]) -> list[tuple[float, float]]:
+    if duration <= 0:
+        return []
+    intervals: list[tuple[float, float]] = []
+    cursor = 0.0
+    for pause in sorted(pauses, key=lambda item: float(item["start"])):
+        start = max(0.0, min(duration, float(pause["start"])))
+        end = max(0.0, min(duration, float(pause["end"])))
+        if start > cursor:
+            intervals.append((cursor, start))
+        cursor = max(cursor, end)
+    if cursor < duration:
+        intervals.append((cursor, duration))
+    return [(start, end) for start, end in intervals if end - start >= 0.05]
+
+
+def build_transcript_word_timeline(transcript: str | None, duration: float, pauses: list[dict[str, float]]) -> list[dict]:
+    words = transcript_words(transcript)
+    if not words or duration <= 0:
+        return []
+    intervals = speech_intervals(duration, pauses) or [(0.0, duration)]
+    speech_duration = sum(end - start for start, end in intervals)
+    if speech_duration <= 0:
+        return []
+    timeline = []
+    interval_index = 0
+    elapsed_before_interval = 0.0
+    for index, word in enumerate(words):
+        speech_position = ((index + 0.5) / len(words)) * speech_duration
+        while interval_index < len(intervals):
+            start, end = intervals[interval_index]
+            interval_duration = end - start
+            if elapsed_before_interval + interval_duration >= speech_position:
+                t = start + (speech_position - elapsed_before_interval)
+                timeline.append({"word": word, "time": round(float(t), 3), "index": index})
+                break
+            elapsed_before_interval += interval_duration
+            interval_index += 1
+    return timeline
 
 
 def downsample_pairs(times: np.ndarray, values: np.ndarray, max_points: int = 700) -> list[tuple[float, float | None]]:
@@ -1282,6 +1407,7 @@ def write_report(out_dir: Path, data: dict, audio_name: str) -> None:
     patterns = pattern_analysis.get("candidates", [])
     library_info = pattern_analysis.get("library", {})
     library_matches = pattern_analysis.get("library_matches", [])
+    active_audio = data.get("active_audio", {})
     share = data["share"]
     lines = [
         "# Prosody Lens Report",
@@ -1297,10 +1423,16 @@ def write_report(out_dir: Path, data: dict, audio_name: str) -> None:
         f"- Vocal variety: {synthesis['vocal_variety']}",
         f"- Progression note: {synthesis['progression_note']}",
         f"- Recommended experiment: {synthesis['recommended_experiment']}",
-        "",
-        "## Listen First",
-        "",
     ]
+    if active_audio.get("status") == "focused":
+        lines.append(
+            f"- Active audio focus: analyzed {fmt(active_audio.get('analysis_duration_seconds'), 's')} "
+            f"from original {fmt(active_audio.get('original_duration_seconds'), 's')} "
+            f"({fmt_time(active_audio.get('active_start_seconds'))} to {fmt_time(active_audio.get('active_end_seconds'))}); "
+            f"trimmed {fmt(active_audio.get('trimmed_leading_seconds'), 's')} leading and "
+            f"{fmt(active_audio.get('trimmed_trailing_seconds'), 's')} trailing quiet audio."
+        )
+    lines.extend(["", "## Listen First", ""])
     if synthesis["listen_first"]:
         for item in synthesis["listen_first"]:
             lines.append(f"- {fmt_time(item['start'])} to {fmt_time(item['end'])}: {item['label']} ({item['why']})")
@@ -1385,6 +1517,8 @@ def write_report(out_dir: Path, data: dict, audio_name: str) -> None:
         lines.append("- Privacy: `report.html` embeds playable raw voice audio. Do not share it externally unless raw audio sharing is approved.")
     else:
         lines.append("- Privacy: share-safe mode omitted the audio player and raw audio copy.")
+    if active_audio.get("status") == "focused":
+        lines.append("- Active-audio focus: chart and playback use the focused analysis copy; original input was not modified.")
 
     lines.extend(
         [
@@ -1473,6 +1607,8 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
     patterns = pattern_analysis.get("candidates", [])
     library_info = pattern_analysis.get("library", {})
     library_matches = pattern_analysis.get("library_matches", [])
+    active_audio = data.get("active_audio", {})
+    word_timeline = data.get("transcript_word_timeline", [])
 
     def top_library_match(item: dict) -> dict:
         matches = item.get("library_matches") or []
@@ -2192,6 +2328,92 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
             text = text[: max(1, limit - 3)].rstrip() + "..."
         return html.escape(text)
 
+    def visual_words_in_span(start: float, end: float, max_words: int) -> list[dict]:
+        if not word_timeline or end <= start:
+            return []
+        words = [item for item in word_timeline if start <= visual_safe_number(item.get("time"), -1.0) <= end]
+        if not words:
+            return []
+        skip = {
+            "a", "about", "actually", "all", "am", "an", "and", "any", "are", "as", "at",
+            "basically", "be", "been", "being", "but", "can", "do", "does", "for", "has",
+            "have", "here", "i", "in", "is", "it", "just", "like", "of", "on", "or",
+            "probably", "so", "sure", "that", "the", "then", "there", "this", "to", "uh",
+            "um", "was", "we", "were", "what", "with", "you", "know",
+        }
+        content_words = [item for item in words if str(item.get("word", "")).lower() not in skip and len(str(item.get("word", ""))) > 2]
+        selected = content_words or words
+        if len(selected) <= max_words:
+            return selected
+        if max_words <= 1:
+            return [selected[len(selected) // 2]]
+        step = (len(selected) - 1) / (max_words - 1)
+        indexes = sorted({round(i * step) for i in range(max_words)})
+        return [selected[index] for index in indexes]
+
+    def visual_series_y_at(series: list[tuple[float, float | None]], t: float, y: float, h: float) -> float:
+        valid = [(visual_safe_number(ts), visual_safe_number(value)) for ts, value in series if value is not None and math.isfinite(float(value))]
+        if not valid:
+            return y + h * 0.35
+        values = [value for _, value in valid]
+        v_min = min(values)
+        v_max = max(values)
+        if abs(v_max - v_min) < 1e-9:
+            v_max = v_min + 1.0
+        nearest = min(valid, key=lambda item: abs(item[0] - t))[1]
+        return y + h - h * max(0.0, min(1.0, (nearest - v_min) / (v_max - v_min)))
+
+    def visual_word_overlay(
+        x: float,
+        y: float,
+        w: float,
+        h: float,
+        start: float,
+        end: float,
+        series: list[tuple[float, float | None]],
+        max_words: int,
+    ) -> str:
+        words = visual_words_in_span(start, end, max_words)
+        if not words or end <= start:
+            return ""
+        labels = []
+        for index, item in enumerate(words):
+            t = visual_safe_number(item.get("time"))
+            px = x + w * max(0.0, min(1.0, (t - start) / (end - start)))
+            px = max(x + 34, min(x + w - 34, px))
+            py = visual_series_y_at(series, t, y, h)
+            label_y = max(y + 16, py - 16 - ((index % 2) * 13))
+            word = visual_text(item.get("word"), "", 13)
+            labels.append(
+                f'<g>'
+                f'<line x1="{px:.1f}" y1="{label_y + 5:.1f}" x2="{px:.1f}" y2="{py - 4:.1f}" class="visual-word-stem" />'
+                f'<text x="{px:.1f}" y="{label_y:.1f}" class="visual-word" text-anchor="middle">{word}</text>'
+                f'</g>'
+            )
+        return "\n".join(labels)
+
+    def visual_pattern_word_overlay(candidate: dict, x: float, y: float, w: float, h: float, max_words: int) -> str:
+        start = visual_safe_number(candidate.get("start"))
+        end = visual_safe_number(candidate.get("end"))
+        words = visual_words_in_span(start, end, max_words)
+        points = [visual_safe_number(value) for value in (candidate.get("pitch_points_st") or []) if value is not None]
+        if not words or len(points) < 2 or end <= start:
+            return ""
+        v_min = min(points)
+        v_max = max(points)
+        if abs(v_max - v_min) < 1e-9:
+            v_max = v_min + 1.0
+        labels = []
+        for index, item in enumerate(words):
+            ratio = max(0.0, min(1.0, (visual_safe_number(item.get("time")) - start) / (end - start)))
+            point_index = min(len(points) - 1, max(0, int(round(ratio * (len(points) - 1)))))
+            px = x + w * ratio
+            px = max(x + 18, min(x + w - 18, px))
+            py = y + h - h * ((points[point_index] - v_min) / (v_max - v_min))
+            label_y = max(y + 10, py - 10 - ((index % 2) * 9))
+            labels.append(f'<text x="{px:.1f}" y="{label_y:.1f}" class="visual-word mini" text-anchor="middle">{visual_text(item.get("word"), "", 10)}</text>')
+        return "\n".join(labels)
+
     def visual_snapshot_map_svg() -> str:
         primary = patterns[0] if patterns else {}
         primary_label = str(primary.get("label") or "Prosody Snapshot").title()
@@ -2199,6 +2421,7 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
         energy_points = visual_series_points(energy, 245, 370, 1070, 118)
         waveform_bars = visual_waveform_bars(245, 540, 1070, 115)
         pause_bands = visual_pause_bands(245, 190, 1070, 470)
+        word_overlay = visual_word_overlay(245, 205, 1070, 122, 0.0, duration, pitch, 11)
         energy_area = ""
         if energy_points:
             baseline = 488
@@ -2212,6 +2435,7 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
             stroke = "#063f4b" if selected else "#dfc48a"
             width_attr = "3" if selected else "2"
             curve = visual_pattern_curve(candidate, tx + 28, ty + 42, 134, 104)
+            pattern_words = visual_pattern_word_overlay(candidate, tx + 28, ty + 42, 134, 104, 2)
             card_title = html.escape(str(candidate.get("label") or "Contour").title())
             card_meta = html.escape(f"#{candidate.get('rank')} {fmt_time(candidate.get('start'))}")
             ribbon = (
@@ -2225,6 +2449,7 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
                 f'<circle cx="{tx + 95}" cy="{ty + 79}" r="58" fill="#f8f0dc" stroke="#d6c6a3" />'
                 f'<line x1="{tx + 43}" y1="{ty + 100}" x2="{tx + 147}" y2="{ty + 100}" stroke="#8aa0a2" stroke-width="1.2" stroke-dasharray="5 5" />'
                 f'<polyline fill="none" stroke="#064a56" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" points="{curve}" />'
+                f'{pattern_words}'
                 f'<text x="{tx + 180}" y="{ty + 48}" class="visual-card-kicker">{html.escape(tile_labels[index])}</text>'
                 f'<text x="{tx + 180}" y="{ty + 82}" class="visual-card-title">{card_title}</text>'
                 f'<text x="{tx + 180}" y="{ty + 116}" class="visual-card-meta">{card_meta}</text>'
@@ -2252,6 +2477,9 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
       .visual-card-kicker {{ fill: #c28a14; font: 800 13px Avenir Next, Trebuchet MS, sans-serif; letter-spacing: 2px; text-transform: uppercase; }}
       .visual-card-title {{ fill: #063f4b; font: 800 27px Georgia, Times New Roman, serif; }}
       .visual-card-meta {{ fill: #12313a; font: 18px Avenir Next, Trebuchet MS, sans-serif; }}
+      .visual-word {{ fill: #063f4b; stroke: #fffdf5; stroke-width: 4px; paint-order: stroke; stroke-linejoin: round; font: 800 17px Avenir Next, Trebuchet MS, sans-serif; }}
+      .visual-word.mini {{ font-size: 12px; stroke-width: 3px; }}
+      .visual-word-stem {{ stroke: #063f4b; stroke-width: 1.2; opacity: 0.32; }}
     </style>
   </defs>
   <rect width="1440" height="900" fill="url(#paperGlow)" />
@@ -2277,6 +2505,7 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
   {pause_bands}
   {energy_area}
   <polyline fill="none" stroke="#064a56" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" points="{pitch_points}" />
+  {word_overlay}
   <polyline fill="none" stroke="#e53546" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" points="{energy_points}" />
   {waveform_bars}
   <line x1="245" y1="675" x2="1315" y2="675" stroke="#064a56" stroke-width="3" />
@@ -2296,6 +2525,8 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
         waveform_bars = visual_waveform_bars(108, 1008, 864, 118)
         pause_bands = visual_pause_bands(108, 456, 864, 468)
         pattern_curve = visual_pattern_curve(primary, 650, 160, 270, 210)
+        pattern_words = visual_pattern_word_overlay(primary, 650, 160, 270, 210, 4)
+        word_overlay = visual_word_overlay(108, 478, 864, 232, 0.0, duration, pitch, 9)
         energy_area = ""
         if energy_points:
             baseline = 914
@@ -2320,6 +2551,9 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
       .card-small {{ fill: #12313a; font: 22px Avenir Next, Trebuchet MS, sans-serif; }}
       .card-stat-value {{ fill: #fffdf5; font: 900 36px Avenir Next Condensed, Arial Black, sans-serif; }}
       .card-stat-label {{ fill: #bcd2d1; font: 800 15px Avenir Next, Trebuchet MS, sans-serif; letter-spacing: 2px; }}
+      .visual-word {{ fill: #063f4b; stroke: #fffaf0; stroke-width: 5px; paint-order: stroke; stroke-linejoin: round; font: 800 24px Avenir Next, Trebuchet MS, sans-serif; }}
+      .visual-word.mini {{ font-size: 18px; stroke-width: 4px; }}
+      .visual-word-stem {{ stroke: #063f4b; stroke-width: 1.5; opacity: 0.32; }}
     </style>
   </defs>
   <rect width="1080" height="1350" fill="url(#cardPaperGlow)" />
@@ -2331,6 +2565,7 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
   <circle cx="790" cy="245" r="166" fill="#f8efd8" stroke="#063f4b" stroke-width="4" />
   <line x1="660" y1="266" x2="920" y2="266" stroke="#8aa0a2" stroke-width="2" stroke-dasharray="8 8" />
   <polyline fill="none" stroke="#063f4b" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" points="{pattern_curve}" />
+  {pattern_words}
   <g>
     <rect x="84" y="390" width="284" height="86" rx="18" fill="#063f4b" />
     <text x="112" y="427" class="card-stat-label">DURATION</text>
@@ -2352,6 +2587,7 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
   {pause_bands}
   {energy_area}
   <polyline fill="none" stroke="#064a56" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" points="{pitch_points}" />
+  {word_overlay}
   <polyline fill="none" stroke="#e53546" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" points="{energy_points}" />
   {waveform_bars}
   <line x1="108" y1="1194" x2="972" y2="1194" stroke="#064a56" stroke-width="5" />
@@ -2374,6 +2610,7 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
             stroke = "#063f4b" if selected else "#dfc48a"
             width_attr = "4" if selected else "2"
             curve = visual_pattern_curve(candidate, tx + 42, ty + 82, 338, 142)
+            word_labels = visual_pattern_word_overlay(candidate, tx + 42, ty + 82, 338, 142, 3)
             label = visual_text(str(candidate.get("label") or "Contour").title(), limit=28)
             rank = html.escape(f"#{candidate.get('rank') or index + 1}")
             start = html.escape(fmt_time(candidate.get("start")))
@@ -2384,6 +2621,7 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
                 f'<text x="{tx + 92}" y="{ty + 48}" class="library-label">{label}</text>'
                 f'<line x1="{tx + 42}" y1="{ty + 170}" x2="{tx + 380}" y2="{ty + 170}" stroke="#8aa0a2" stroke-width="1.8" stroke-dasharray="7 7" />'
                 f'<polyline fill="none" stroke="#064a56" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" points="{curve}" />'
+                f'{word_labels}'
                 f'<text x="{tx + 30}" y="{ty + 232}" class="library-meta">{start}</text>'
                 f'<circle cx="{tx + 352}" cy="{ty + 224}" r="18" fill="{"#e53546" if selected else "#d9c28a"}" />'
                 f'</g>'
@@ -2404,6 +2642,8 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
       .library-label {{ fill: #063f4b; font: 800 28px Georgia, Times New Roman, serif; }}
       .library-meta {{ fill: #12313a; font: 21px Avenir Next, Trebuchet MS, sans-serif; }}
       .library-axis {{ fill: #12313a; font: 19px Avenir Next, Trebuchet MS, sans-serif; }}
+      .visual-word {{ fill: #063f4b; stroke: #fffdf5; stroke-width: 4px; paint-order: stroke; stroke-linejoin: round; font: 800 18px Avenir Next, Trebuchet MS, sans-serif; }}
+      .visual-word.mini {{ font-size: 15px; stroke-width: 3px; }}
     </style>
   </defs>
   <rect width="1440" height="1080" fill="url(#libraryPaperGlow)" />
@@ -2536,6 +2776,17 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
 })();
 """
 
+    active_notice = ""
+    if active_audio.get("status") == "focused":
+        active_notice = (
+            '<div class="notice">'
+            f'Active audio focus: showing {html.escape(fmt(active_audio.get("analysis_duration_seconds"), "s"))} '
+            f'from original {html.escape(fmt(active_audio.get("original_duration_seconds"), "s"))}; '
+            f'trimmed {html.escape(fmt(active_audio.get("trimmed_leading_seconds"), "s"))} leading and '
+            f'{html.escape(fmt(active_audio.get("trimmed_trailing_seconds"), "s"))} trailing quiet audio. '
+            'Original input was not modified.</div>'
+        )
+
     if include_audio:
         audio_src, audio_type = audio_data_uri(playback_path)
         audio_block = (
@@ -2543,6 +2794,7 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
             f'<source src="{audio_src}" type="{audio_type}" />'
             '</audio>'
             '<div class="notice warn">Privacy: this HTML embeds a playable copy of the raw voice audio. Do not share externally unless raw audio sharing is approved.</div>'
+            f'{active_notice}'
         )
         controls_block = f"""
 <section class="control-panel" aria-label="Audio inspection controls">
@@ -2573,7 +2825,7 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
 </section>
 """
     else:
-        audio_block = '<div class="notice">Share-safe report: audio player and raw voice audio omitted.</div>'
+        audio_block = f'<div class="notice">Share-safe report: audio player and raw voice audio omitted.</div>{active_notice}'
         controls_block = ""
 
     method_note = (
@@ -3096,9 +3348,17 @@ def analyze(args: argparse.Namespace) -> dict:
     if args.save_pattern_label and pattern_library_path is None:
         pattern_library_path = out_dir / "pattern-library.json"
     convert_to_wav(audio_path, wav_path)
+    sample_rate, samples = read_wav(wav_path)
+    active_audio = detect_active_audio_window(samples, sample_rate)
+    if active_audio.get("status") == "focused":
+        start_sample = max(0, int(active_audio.get("start_sample") or 0))
+        end_sample = min(len(samples), int(active_audio.get("end_sample") or len(samples)))
+        if end_sample > start_sample:
+            samples = samples[start_sample:end_sample]
+            write_wav(wav_path, sample_rate, samples)
+    active_audio = {key: value for key, value in active_audio.items() if key not in ("start_sample", "end_sample")}
     if not args.share_safe:
         playback_path = make_playback_audio(wav_path, playback_path)
-    sample_rate, samples = read_wav(wav_path)
 
     duration = float(len(samples) / sample_rate) if sample_rate else 0.0
     times, frames = frame_audio(samples, sample_rate, frame_ms=30.0, hop_ms=10.0)
@@ -3159,6 +3419,7 @@ def analyze(args: argparse.Namespace) -> dict:
     transcript = load_transcript(Path(args.transcript).expanduser().resolve() if args.transcript else None)
     words = count_words(transcript)
     wpm = round(words / (speech_duration / 60.0), 2) if words is not None else None
+    transcript_word_timeline = build_transcript_word_timeline(transcript, duration, pauses)
 
     intensity_summary = summarize(energy_db)
     energy_p90 = safe_percentile(energy_db, 90)
@@ -3295,6 +3556,7 @@ def analyze(args: argparse.Namespace) -> dict:
             "sample_rate": sample_rate,
             "min_pause_seconds": args.min_pause,
         },
+        "active_audio": active_audio,
         "metrics": metrics,
         "trend_metrics": trend_metrics,
         "progression": progression,
@@ -3309,6 +3571,7 @@ def analyze(args: argparse.Namespace) -> dict:
             "energy_db": downsample_pairs(times, energy_db),
             "pitch_hz": downsample_pairs(times, pitch_arr),
         },
+        "transcript_word_timeline": transcript_word_timeline,
         "share": {
             "html_embeds_audio": not args.share_safe,
             "raw_audio_file": None if args.share_safe else "audio.wav",

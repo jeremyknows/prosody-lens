@@ -137,7 +137,8 @@ Show more than the waveform. Good pattern artifacts can include:
    and export JSON for the library update handoff.
 6. **Visual Snapshot** — low-text SVG/PNG exports for stakeholder review:
    `Map` for analysis, `Card` for sharing, and `Library` for pattern
-   comparison.
+   comparison. When a transcript is supplied, sparse words can float above the
+   arcs as approximate anchors.
 7. **Future Recurrence Matrix** — a heatmap of similar contour windows. Useful
    once the project needs stronger repeated-pattern discovery.
 8. **Future Aligned Transcript Lane** — words/phonemes under the contour. This
@@ -145,16 +146,18 @@ Show more than the waveform. Good pattern artifacts can include:
 
 ## Current Local Method
 
-The local v0.8 method:
+The local v0.9 method:
 
 1. Convert audio to mono WAV.
-2. Extract pitch and intensity with Praat/Parselmouth when installed, or use the
+2. Detect and trim long quiet leading/trailing edges from the analysis/playback
+   copy when dead air would otherwise squash the chart.
+3. Extract pitch and intensity with Praat/Parselmouth when installed, or use the
    dependency-light fallback.
-3. Detect pauses and phrase-like spans.
-4. Split long spans into sliding phrase windows.
-5. Resample pitch and energy inside each span.
-6. Normalize contours so shape is visible independent of absolute pitch/loudness.
-7. Label rough contour shapes:
+4. Detect pauses and phrase-like spans.
+5. Split long spans into sliding phrase windows.
+6. Resample pitch and energy inside each span.
+7. Normalize contours so shape is visible independent of absolute pitch/loudness.
+8. Label rough contour shapes:
    - rising contour
    - falling contour
    - rise-fall arc
@@ -162,13 +165,14 @@ The local v0.8 method:
    - wavy contour
    - energy build/taper
    - level/subtle contour
-8. Group repeated candidates into loose contour families.
-9. Optionally compare candidate signatures and pitch/energy sequences to
+9. Group repeated candidates into loose contour families.
+10. Optionally compare candidate signatures and pitch/energy sequences to
    approved examples in a JSON pattern library.
-10. Expose a static review workbench so an analyst can approve/reject/rename a
+11. Expose a static review workbench so an analyst can approve/reject/rename a
     candidate and export the exact JSON handoff.
-11. Generate selectable Map/Card/Library visual snapshot SVGs and local PNG
-    export for the active layout.
+12. Generate selectable Map/Card/Library visual snapshot SVGs with sparse
+    transcript word overlays when available, plus local PNG export for the
+    active layout.
 
 This is intentionally conservative. It is a discovery and visualization aid, not
 a final speech-science classifier.

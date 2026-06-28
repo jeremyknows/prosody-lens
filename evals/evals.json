@@ -72,6 +72,18 @@
       "prompt": "Make this more artifact-like: switch between Map, Card, and Library visual layouts and download the active image.",
       "expected_output": "Uses the report.html visual layout selector, verifies Map/Card/Library each activates a distinct SVG snapshot, and verifies Download image exports a non-empty PNG for the active selected layout.",
       "files": ["stakeholder-pattern-clip.ogg"]
+    },
+    {
+      "id": 13,
+      "prompt": "This selected clip is mostly dead air after the actual voice note. Make the chart focus on the part with sound.",
+      "expected_output": "Detects long quiet leading/trailing audio, focuses the analysis/playback copy on the active audio window, records active_audio original/focused durations and trimmed edge seconds in prosody.json, and discloses the focus in report.md/report.html.",
+      "files": ["voice-note-with-dead-tail.ogg"]
+    },
+    {
+      "id": 14,
+      "prompt": "Use this transcript and make the visual-only prosodic pattern image show a few words floating above the inflection arc.",
+      "expected_output": "Runs with --transcript, builds transcript_word_timeline, renders sparse word labels above Map/Card/Library visual arcs, verifies the labels appear in report.html, and verifies Download image exports a PNG containing the active layout.",
+      "files": ["stakeholder-pattern-clip.ogg", "stakeholder-pattern-transcript.txt"]
     }
   ]
 }

@@ -31,7 +31,12 @@ Score each item yes/no:
 13. The visual snapshot supports Map, Card, and Library layouts; switching
     layouts updates the visible snapshot and Download image exports the active
     layout, not a hidden default.
+14. If a transcript is supplied, visual snapshots include sparse word labels
+    floating above pitch/contour arcs, while avoiding claims of exact alignment.
+15. Long quiet leading/trailing audio is auto-focused so charts use the active
+    audio window, and `active_audio` records/discloses original duration,
+    focused duration, and trimmed edge seconds.
 
-Passing threshold for publish-quality outputs: 12/13, with items 1, 2, 4, 8, 9,
-10, 11, 12, and 13
+Passing threshold for publish-quality outputs: 14/15, with items 1, 2, 4, 8, 9,
+10, 11, 12, 13, 14, and 15
 required.

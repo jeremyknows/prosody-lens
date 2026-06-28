@@ -88,6 +88,7 @@ Recommended JSON/report fields:
 - possible acoustic peak time ranges
 - session metadata for repeated runs
 - compact trend metrics for longitudinal comparison
+- active-audio focus metadata for long quiet heads/tails
 - opening/middle/closing progression segments
 - candidate prosodic contour patterns
 - loose repeated contour families
@@ -100,6 +101,8 @@ Recommended v1 visual report:
 - audio player
 - low-text Map/Card/Library visual snapshots with local PNG download for
   stakeholder review
+- sparse transcript word overlays above inflection arcs when a transcript is
+  supplied
 - waveform track
 - pitch contour track
 - intensity contour track
@@ -111,6 +114,8 @@ Recommended v1 visual report:
 - pattern contour cards and motif table
 - visual-only toggle for hiding word-heavy sections
 - active-layout PNG export from the selected Map, Card, or Library snapshot
+- active-audio focus disclosure when quiet leading/trailing sections were
+  trimmed from the analysis/playback copy
 - pattern library match table when `--pattern-library` is supplied
 
 Recommended v2:
