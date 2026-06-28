@@ -173,12 +173,20 @@ def detect_active_audio_window(samples: np.ndarray, sample_rate: int, padding_s:
 
     noise_floor = float(np.percentile(finite, 10))
     speech_level = float(np.percentile(finite, 90))
+    peak_level = float(np.percentile(finite, 99.5))
     dynamic_range = speech_level - noise_floor
-    threshold = noise_floor + max(6.0, min(18.0, dynamic_range * 0.35))
+    peak_range = peak_level - noise_floor
+    effective_range = max(dynamic_range, peak_range)
+    floor_relative_threshold = noise_floor + max(6.0, min(18.0, effective_range * 0.35))
+    peak_relative_threshold = peak_level - 36.0
+    threshold = max(floor_relative_threshold, peak_relative_threshold)
     base["threshold_db"] = round(threshold, 3)
     base["noise_floor_db"] = round(noise_floor, 3)
     base["speech_level_db"] = round(speech_level, 3)
-    if dynamic_range < 8.0:
+    base["peak_level_db"] = round(peak_level, 3)
+    base["dynamic_range_db"] = round(dynamic_range, 3)
+    base["peak_range_db"] = round(peak_range, 3)
+    if effective_range < 8.0:
         base["status"] = "low_dynamic_range"
         return base
 
@@ -2363,6 +2371,42 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
         nearest = min(valid, key=lambda item: abs(item[0] - t))[1]
         return y + h - h * max(0.0, min(1.0, (nearest - v_min) / (v_max - v_min)))
 
+    def visual_word_callout(
+        word_value: object,
+        px: float,
+        py: float,
+        card_y: float,
+        min_x: float,
+        max_x: float,
+        mini: bool = False,
+    ) -> str:
+        raw_word = str(word_value or "").strip()
+        if not raw_word:
+            return ""
+        limit = 10 if mini else 13
+        word = visual_text(raw_word, "", limit)
+        visible_len = min(len(raw_word), limit)
+        card_h = 24 if mini else 32
+        min_w = 56 if mini else 72
+        max_w = 118 if mini else 154
+        char_w = 7.0 if mini else 8.8
+        card_w = max(min_w, min(max_w, 24 + visible_len * char_w))
+        available_w = max(1.0, max_x - min_x)
+        if card_w > available_w:
+            card_w = available_w
+        card_x = max(min_x, min(max_x - card_w, px - card_w / 2))
+        label_x = card_x + card_w / 2
+        connector_y = card_y + card_h
+        dot_r = 4.8 if mini else 6.2
+        return (
+            f'<g class="visual-word-callout">'
+            f'<path d="M{px:.1f} {py:.1f} L{label_x:.1f} {connector_y:.1f}" class="visual-word-connector" />'
+            f'<circle cx="{px:.1f}" cy="{py:.1f}" r="{dot_r:.1f}" class="visual-word-dot" />'
+            f'<rect x="{card_x:.1f}" y="{card_y:.1f}" width="{card_w:.1f}" height="{card_h:.1f}" rx="{8 if mini else 10}" class="visual-word-card{" mini" if mini else ""}" />'
+            f'<text x="{label_x:.1f}" y="{card_y + card_h / 2:.1f}" class="visual-word-label{" mini" if mini else ""}" text-anchor="middle" dominant-baseline="middle">{word}</text>'
+            f'</g>'
+        )
+
     def visual_word_overlay(
         x: float,
         y: float,
@@ -2382,14 +2426,9 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
             px = x + w * max(0.0, min(1.0, (t - start) / (end - start)))
             px = max(x + 34, min(x + w - 34, px))
             py = visual_series_y_at(series, t, y, h)
-            label_y = max(y + 16, py - 16 - ((index % 2) * 13))
-            word = visual_text(item.get("word"), "", 13)
-            labels.append(
-                f'<g>'
-                f'<line x1="{px:.1f}" y1="{label_y + 5:.1f}" x2="{px:.1f}" y2="{py - 4:.1f}" class="visual-word-stem" />'
-                f'<text x="{px:.1f}" y="{label_y:.1f}" class="visual-word" text-anchor="middle">{word}</text>'
-                f'</g>'
-            )
+            card_y = py - 50 - ((index % 3) * 17)
+            card_y = max(max(18.0, y - 62), min(y + h - 40, card_y))
+            labels.append(visual_word_callout(item.get("word"), px, py, card_y, x + 8, x + w - 8))
         return "\n".join(labels)
 
     def visual_pattern_word_overlay(candidate: dict, x: float, y: float, w: float, h: float, max_words: int) -> str:
@@ -2410,8 +2449,9 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
             px = x + w * ratio
             px = max(x + 18, min(x + w - 18, px))
             py = y + h - h * ((points[point_index] - v_min) / (v_max - v_min))
-            label_y = max(y + 10, py - 10 - ((index % 2) * 9))
-            labels.append(f'<text x="{px:.1f}" y="{label_y:.1f}" class="visual-word mini" text-anchor="middle">{visual_text(item.get("word"), "", 10)}</text>')
+            card_y = py - 35 - ((index % 2) * 12)
+            card_y = max(max(8.0, y - 22), min(y + h - 28, card_y))
+            labels.append(visual_word_callout(item.get("word"), px, py, card_y, x + 2, x + w - 2, mini=True))
         return "\n".join(labels)
 
     def visual_snapshot_map_svg() -> str:
@@ -2477,9 +2517,12 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
       .visual-card-kicker {{ fill: #c28a14; font: 800 13px Avenir Next, Trebuchet MS, sans-serif; letter-spacing: 2px; text-transform: uppercase; }}
       .visual-card-title {{ fill: #063f4b; font: 800 27px Georgia, Times New Roman, serif; }}
       .visual-card-meta {{ fill: #12313a; font: 18px Avenir Next, Trebuchet MS, sans-serif; }}
-      .visual-word {{ fill: #063f4b; stroke: #fffdf5; stroke-width: 4px; paint-order: stroke; stroke-linejoin: round; font: 800 17px Avenir Next, Trebuchet MS, sans-serif; }}
-      .visual-word.mini {{ font-size: 12px; stroke-width: 3px; }}
-      .visual-word-stem {{ stroke: #063f4b; stroke-width: 1.2; opacity: 0.32; }}
+      .visual-word-connector {{ fill: none; stroke: #063f4b; stroke-width: 1.6; stroke-opacity: 0.44; }}
+      .visual-word-dot {{ fill: #fffdf5; stroke: #064a56; stroke-width: 3.2; }}
+      .visual-word-card {{ fill: #fffdf5; fill-opacity: 0.92; stroke: #063f4b; stroke-opacity: 0.16; stroke-width: 1.1; }}
+      .visual-word-card.mini {{ fill-opacity: 0.9; }}
+      .visual-word-label {{ fill: #063f4b; font: 850 16px Avenir Next, Trebuchet MS, sans-serif; }}
+      .visual-word-label.mini {{ font-size: 11px; }}
     </style>
   </defs>
   <rect width="1440" height="900" fill="url(#paperGlow)" />
@@ -2520,13 +2563,13 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
     def visual_snapshot_card_svg() -> str:
         primary = patterns[0] if patterns else {}
         primary_label = visual_text(str(primary.get("label") or "Prosody Snapshot").title(), limit=30)
-        pitch_points = visual_series_points(pitch, 108, 478, 864, 232)
+        pitch_points = visual_series_points(pitch, 108, 560, 864, 190)
         energy_points = visual_series_points(energy, 108, 782, 864, 132)
         waveform_bars = visual_waveform_bars(108, 1008, 864, 118)
-        pause_bands = visual_pause_bands(108, 456, 864, 468)
+        pause_bands = visual_pause_bands(108, 540, 864, 386)
         pattern_curve = visual_pattern_curve(primary, 650, 160, 270, 210)
         pattern_words = visual_pattern_word_overlay(primary, 650, 160, 270, 210, 4)
-        word_overlay = visual_word_overlay(108, 478, 864, 232, 0.0, duration, pitch, 9)
+        word_overlay = visual_word_overlay(108, 560, 864, 190, 0.0, duration, pitch, 9)
         energy_area = ""
         if energy_points:
             baseline = 914
@@ -2551,9 +2594,12 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
       .card-small {{ fill: #12313a; font: 22px Avenir Next, Trebuchet MS, sans-serif; }}
       .card-stat-value {{ fill: #fffdf5; font: 900 36px Avenir Next Condensed, Arial Black, sans-serif; }}
       .card-stat-label {{ fill: #bcd2d1; font: 800 15px Avenir Next, Trebuchet MS, sans-serif; letter-spacing: 2px; }}
-      .visual-word {{ fill: #063f4b; stroke: #fffaf0; stroke-width: 5px; paint-order: stroke; stroke-linejoin: round; font: 800 24px Avenir Next, Trebuchet MS, sans-serif; }}
-      .visual-word.mini {{ font-size: 18px; stroke-width: 4px; }}
-      .visual-word-stem {{ stroke: #063f4b; stroke-width: 1.5; opacity: 0.32; }}
+      .visual-word-connector {{ fill: none; stroke: #063f4b; stroke-width: 2.2; stroke-opacity: 0.44; }}
+      .visual-word-dot {{ fill: #fffaf0; stroke: #064a56; stroke-width: 4.2; }}
+      .visual-word-card {{ fill: #fffaf0; fill-opacity: 0.93; stroke: #063f4b; stroke-opacity: 0.16; stroke-width: 1.4; }}
+      .visual-word-card.mini {{ fill-opacity: 0.9; }}
+      .visual-word-label {{ fill: #063f4b; font: 850 22px Avenir Next, Trebuchet MS, sans-serif; }}
+      .visual-word-label.mini {{ font-size: 16px; }}
     </style>
   </defs>
   <rect width="1080" height="1350" fill="url(#cardPaperGlow)" />
@@ -2561,7 +2607,7 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
   <text x="86" y="118" class="card-eyebrow">PROSODY LENS</text>
   <text x="84" y="225" class="card-title">VOICE MAP</text>
   <text x="88" y="306" class="card-pattern">{primary_label}</text>
-  <text x="90" y="356" class="card-sub">Pitch, loudness, pauses, and waveform as one shareable pattern.</text>
+  <text x="90" y="356" class="card-sub">Pitch, loudness, pauses, and waveform.</text>
   <circle cx="790" cy="245" r="166" fill="#f8efd8" stroke="#063f4b" stroke-width="4" />
   <line x1="660" y1="266" x2="920" y2="266" stroke="#8aa0a2" stroke-width="2" stroke-dasharray="8 8" />
   <polyline fill="none" stroke="#063f4b" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" points="{pattern_curve}" />
@@ -2580,8 +2626,8 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
   <text x="108" y="536" class="card-label">PITCH CONTOUR</text>
   <text x="108" y="842" class="card-label" fill="#e53546">LOUDNESS SHAPE</text>
   <text x="108" y="1068" class="card-label" fill="#6f7771">WAVEFORM</text>
-  <line x1="108" y1="478" x2="972" y2="478" stroke="#d8cdbb" stroke-dasharray="8 8" />
-  <line x1="108" y1="710" x2="972" y2="710" stroke="#d8cdbb" stroke-dasharray="8 8" />
+  <line x1="108" y1="560" x2="972" y2="560" stroke="#d8cdbb" stroke-dasharray="8 8" />
+  <line x1="108" y1="750" x2="972" y2="750" stroke="#d8cdbb" stroke-dasharray="8 8" />
   <line x1="108" y1="914" x2="972" y2="914" stroke="#dfb1a9" />
   <line x1="108" y1="1067" x2="972" y2="1067" stroke="#d0c7b8" />
   {pause_bands}
@@ -2642,8 +2688,12 @@ def write_html(out_dir: Path, data: dict, playback_path: Path, include_audio: bo
       .library-label {{ fill: #063f4b; font: 800 28px Georgia, Times New Roman, serif; }}
       .library-meta {{ fill: #12313a; font: 21px Avenir Next, Trebuchet MS, sans-serif; }}
       .library-axis {{ fill: #12313a; font: 19px Avenir Next, Trebuchet MS, sans-serif; }}
-      .visual-word {{ fill: #063f4b; stroke: #fffdf5; stroke-width: 4px; paint-order: stroke; stroke-linejoin: round; font: 800 18px Avenir Next, Trebuchet MS, sans-serif; }}
-      .visual-word.mini {{ font-size: 15px; stroke-width: 3px; }}
+      .visual-word-connector {{ fill: none; stroke: #063f4b; stroke-width: 1.7; stroke-opacity: 0.44; }}
+      .visual-word-dot {{ fill: #fffdf5; stroke: #064a56; stroke-width: 3.4; }}
+      .visual-word-card {{ fill: #fffdf5; fill-opacity: 0.92; stroke: #063f4b; stroke-opacity: 0.16; stroke-width: 1.1; }}
+      .visual-word-card.mini {{ fill-opacity: 0.9; }}
+      .visual-word-label {{ fill: #063f4b; font: 850 16px Avenir Next, Trebuchet MS, sans-serif; }}
+      .visual-word-label.mini {{ font-size: 13px; }}
     </style>
   </defs>
   <rect width="1440" height="1080" fill="url(#libraryPaperGlow)" />

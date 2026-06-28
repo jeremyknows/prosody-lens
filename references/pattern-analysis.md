@@ -171,7 +171,7 @@ The local v0.9 method:
 11. Expose a static review workbench so an analyst can approve/reject/rename a
     candidate and export the exact JSON handoff.
 12. Generate selectable Map/Card/Library visual snapshot SVGs with sparse
-    transcript word overlays when available, plus local PNG export for the
+    transcript word callouts when available, plus local PNG export for the
     active layout.
 
 This is intentionally conservative. It is a discovery and visualization aid, not

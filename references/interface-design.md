@@ -13,8 +13,9 @@ for speech analysis.
 - Include low-text visual snapshots for stakeholder review. They should stand on
   their own as images: `Map` for analysis, `Card` for sharing, and `Library` for
   pattern comparison.
-- When a transcript is supplied, float sparse words above inflection arcs as
-  approximate visual anchors. Do not present them as forced-aligned word timing.
+- When a transcript is supplied, show sparse words as dot-on-arc,
+  connector-line, translucent-card callouts above inflection arcs. Treat them as
+  approximate visual anchors, not forced-aligned word timing.
 - If long quiet leading/trailing audio is auto-focused, disclose that near the
   audio controls so the shorter playback duration is not surprising.
 - Use cards only for individual metrics, summaries, or controls. Do not nest
@@ -167,8 +168,8 @@ Before sharing an HTML artifact, verify:
   exports valid JSON without layout overflow.
 - Visual only hides word-heavy sections while preserving charts/pattern visuals.
 - Map/Card/Library layout switching updates the visible visual snapshot.
-- Transcript word overlays render above pitch/contour arcs when transcript data
-  is available.
+- Transcript word callouts render above pitch/contour arcs when transcript data
+  is available, with readable card opacity and connectors back to the contour.
 - Download image exports a non-empty PNG locally from the active visual
   snapshot, not a hidden default layout.
 - Active-audio focus trims long quiet edges on dead-air fixtures and discloses

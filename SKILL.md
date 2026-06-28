@@ -11,7 +11,7 @@ compatibility: >
   Forced Aligner, openSMILE, librosa, Plotly.
 metadata:
   author: jeremyknows
-  version: "0.9.0"
+  version: "0.10.0"
   category: Audio Analysis & Visualization
   status: EXPERIMENTAL
   last_improved: "2026-06-28"
@@ -73,7 +73,7 @@ python3 -m pip install -r requirements.txt -r requirements-praat.txt
 |------|------------|--------|
 | Analyze | "analyze this voice memo" / `--analyze` | Markdown report + JSON metrics |
 | Visualize | "visualize the prosody" / `--viz` | Interactive HTML report + Markdown; quiet-edge auto-focus when needed |
-| Visual Export | "visual only" / "download just the image" | Toggle a low-text visual view, choose Map/Card/Library layouts, float sparse transcript words over arcs when available, and export the active PNG |
+| Visual Export | "visual only" / "download just the image" | Toggle a low-text visual view, choose Map/Card/Library layouts, show sparse transcript words as dot/connector/card callouts over arcs when available, and export the active PNG |
 | Compare | "compare these two takes" / `--compare` | Run one report per take, then synthesize differences |
 | Progression | "show progression over time" / `--progression` | Append/read trend records and compare stable metrics |
 | Pattern Discovery | "find prosodic patterns" / `--patterns` | Candidate contour patterns, repeat families, and pattern visuals |
@@ -184,8 +184,9 @@ When the user wants fewer words or a shareable visual:
 2. Click `Visual only` to hide summaries, tables, limitations, and review text.
 3. Choose the visual layout: `Map` for analysis, `Card` for a shareable image,
    or `Library` for pattern comparison.
-4. If a transcript is supplied, expect sparse words to float above the inflection
-   arcs as approximate visual anchors, not word-level forced alignment.
+4. If a transcript is supplied, expect sparse words to appear as dot-on-arc,
+   connector-line, translucent-card callouts above the inflection arcs. These
+   are approximate visual anchors, not word-level forced alignment.
 5. Click `Download image` to export the active visual snapshot as a PNG.
 
 The PNG export is generated locally from the report's embedded SVG; it does not
@@ -251,7 +252,8 @@ known examples.
 Prefer an interactive HTML report for v1:
 - audio player
 - active-audio focus that trims long quiet leading/trailing edges from the
-  analysis/playback copy while preserving the original input
+  analysis/playback copy while preserving the original input, including clips
+  where speech occupies only a small fraction of the selected file
 - waveform
 - energy/loudness contour
 - pitch contour
@@ -263,8 +265,8 @@ Prefer an interactive HTML report for v1:
 - visual snapshot SVG built from the real waveform, pitch, loudness, pause, and
   top-pattern data
 - visual layout selector with `Map`, `Card`, and `Library` views
-- sparse transcript word overlays above inflection arcs when `--transcript` is
-  supplied
+- sparse transcript word callouts above inflection arcs when `--transcript` is
+  supplied: dot on contour, connector line, and readable translucent word card
 - Visual only toggle that hides word-heavy sections for stakeholder review
 - Download image button that exports the active visual snapshot PNG
 - top "listen first" moments
@@ -348,7 +350,7 @@ Minimum acceptable report quality is 14/15, with these mandatory:
   in `report.html`
 - visual-sharing requests include working `Visual only` and `Download image`
   controls, plus `Map`, `Card`, and `Library` visual layouts
-- transcript-backed visual requests include sparse word overlays on visual arcs
+- transcript-backed visual requests include sparse word callouts on visual arcs
 - long dead-air heads/tails are auto-focused and disclosed in `active_audio`
 - limitations are stated
 - no claims are made about medical conditions, honesty, personality, emotion, or
@@ -377,7 +379,7 @@ For HTML/UI changes, open `report.html` and verify:
 - Visual only hides word-heavy sections without breaking charts, and Download
   image produces a non-empty PNG from the active `Map`, `Card`, or `Library`
   visual snapshot
-- transcript word overlays render on visual arcs when a transcript is supplied
+- transcript word callouts render on visual arcs when a transcript is supplied
 - long quiet leading/trailing audio is focused out when it would otherwise squash
   the chart, and `active_audio` records the original/focused durations
 - mobile layout has no horizontal overflow

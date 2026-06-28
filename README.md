@@ -13,7 +13,8 @@ for the bundled analyzer.
   acoustic peaks, and opening/middle/closing progression.
 - Optionally uses Praat/Parselmouth for higher-fidelity pitch and intensity.
 - Auto-focuses long quiet leading/trailing audio so charts do not collapse into
-  the far left when a selected file contains dead air.
+  the far left when a selected file contains dead air, even when the spoken
+  portion is only a small fraction of the file.
 - Surfaces candidate prosodic contour patterns and loose repeat families.
 - Saves analyst-approved pattern exemplars into a JSON library.
 - Matches future clips against approved pattern-library examples with
@@ -21,7 +22,7 @@ for the bundled analyzer.
 - Adds a static Pattern Review Workbench inside `report.html` for approving,
   rejecting, renaming, annotating, and exporting candidate review JSON.
 - Adds Visual only, Map/Card/Library visual layouts, sparse transcript word
-  overlays, and Download image for low-text stakeholder sharing.
+  callouts, and Download image for low-text stakeholder sharing.
 - Generates `prosody.json`, `report.md`, and an interactive `report.html`.
 - Embeds browser-friendly MP3 playback in the HTML by default.
 - Supports repeated-run trend records with `--history`.
@@ -163,7 +164,7 @@ python3 scripts/prosody_analyze.py /absolute/path/to/audio.ogg \
 | --- | --- |
 | `prosody.json` | Structured metrics, synthesis, analyzer method, `active_audio` focus metadata, session metadata, pattern analysis, trend metrics, progression, and time series. |
 | `report.md` | Human-readable summary, listen-first moments, metrics, limitations, and pause map. |
-| `report.html` | Standalone interactive report with focused audio playback when needed, charts, controls, selectable visual snapshot layouts, transcript word overlays when available, PNG export, visual-only mode, and Pattern Review Workbench. |
+| `report.html` | Standalone interactive report with focused audio playback when needed, charts, controls, selectable visual snapshot layouts, transcript word callouts when available, PNG export, visual-only mode, and Pattern Review Workbench. |
 | `pattern-library.json` | Optional analyst-reviewed library when `--pattern-library` and `--save-pattern-label` are used. |
 | `audio.wav` | Normalized mono WAV used for analysis unless `--share-safe` is used. |
 | `audio.mp3` | Browser-friendly playback copy embedded in HTML when available. |
@@ -196,7 +197,7 @@ Prosody Lens includes explicit HTML/CSS direction for generated artifacts in
 `references/interface-design.md`. Agents should use it when creating or editing
 `report.html`: warm cream paper, red accent, deep teal structure, tactile
 controls, selectable Map/Card/Library visual snapshots, click-to-seek charts,
-transcript word overlays, active-audio focus disclosure, tabular metrics,
+transcript word callouts, active-audio focus disclosure, tabular metrics,
 mobile-safe wrapping, and reduced-motion support.
 
 ## Pattern Library Workflow
@@ -227,14 +228,15 @@ For stakeholder review, use `Visual only` in `report.html` to hide the word-heav
 sections, choose `Map`, `Card`, or `Library`, then use `Download image` to export
 that active PNG visual snapshot. The image is rendered locally from the embedded
 SVG, using the actual waveform, pitch, loudness, pause bands, and top pattern
-contours. If a transcript was supplied, sparse transcript words float above the
-inflection arcs as approximate anchors; use forced alignment for exact word
-timing.
+contours. If a transcript was supplied, sparse transcript words render as
+dot-on-arc, connector-line, translucent-card callouts; use forced alignment for
+exact word timing.
 
 If a selected file has a long quiet head or tail, Prosody Lens focuses the
 analysis/playback copy on the active audio window and records the original
 duration, focused duration, and trimmed leading/trailing seconds in
-`active_audio`.
+`active_audio`. The detector uses both noise-floor and peak-relative energy so
+short speech at the front of a mostly silent file still gets focused.
 
 ## Privacy And Sharing
 
@@ -294,6 +296,6 @@ test -f /tmp/prosody-lens-pattern-library.json
 
 For UI changes, open `report.html` and verify audio playback, chart click-to-seek,
 loop duration controls, Pattern Review Workbench JSON export, Visual only mode,
-Map/Card/Library layout switching, transcript word overlays, active-layout
+Map/Card/Library layout switching, transcript word callouts, active-layout
 Download image PNG export, active-audio focus disclosure on dead-air fixtures,
 mobile layout, and no console errors.

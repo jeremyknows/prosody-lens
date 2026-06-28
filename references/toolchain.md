@@ -101,8 +101,8 @@ Recommended v1 visual report:
 - audio player
 - low-text Map/Card/Library visual snapshots with local PNG download for
   stakeholder review
-- sparse transcript word overlays above inflection arcs when a transcript is
-  supplied
+- sparse transcript word callouts above inflection arcs when a transcript is
+  supplied, using a dot on the contour, connector line, and translucent label card
 - waveform track
 - pitch contour track
 - intensity contour track

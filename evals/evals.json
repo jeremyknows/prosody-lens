@@ -82,8 +82,14 @@
     {
       "id": 14,
       "prompt": "Use this transcript and make the visual-only prosodic pattern image show a few words floating above the inflection arc.",
-      "expected_output": "Runs with --transcript, builds transcript_word_timeline, renders sparse word labels above Map/Card/Library visual arcs, verifies the labels appear in report.html, and verifies Download image exports a PNG containing the active layout.",
+      "expected_output": "Runs with --transcript, builds transcript_word_timeline, renders sparse word callouts above Map/Card/Library visual arcs with dots, connectors, and readable translucent cards, verifies the callouts appear in report.html, and verifies Download image exports a PNG containing the active layout.",
       "files": ["stakeholder-pattern-clip.ogg", "stakeholder-pattern-transcript.txt"]
+    },
+    {
+      "id": 15,
+      "prompt": "The audio has four seconds of speech followed by almost a minute of quiet tail. Make the visual use the spoken part, not the dead air.",
+      "expected_output": "Uses peak-relative and noise-floor-relative active-audio focus, trims the long quiet tail from the analysis/playback copy, records active_audio original/focused durations and trimmed_trailing_seconds, and renders a visual snapshot where the speech occupies the chart instead of being squeezed into the far left.",
+      "files": ["short-speech-long-quiet-tail.mp3"]
     }
   ]
 }
